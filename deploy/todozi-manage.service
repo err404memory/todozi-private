@@ -1,0 +1,16 @@
+[Unit]
+Description=Todozi manage browser front door
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ash/storage/service-wing/engine-room/todozi-manage
+EnvironmentFile=/home/ash/storage/service-wing/engine-room/todozi-manage/deploy/todozi-manage.env
+EnvironmentFile=/home/ash/storage/service-wing/engine-room/telegram-hub/todozi-telegram/deploy/todozi-telegram.env
+ExecStart=/usr/bin/env node /home/ash/storage/service-wing/engine-room/todozi-manage/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

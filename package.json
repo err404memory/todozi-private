@@ -1,0 +1,11 @@
+{
+  "name": "todozi-manage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser front door for managing Todozi data.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  }
+}

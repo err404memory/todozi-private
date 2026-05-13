@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todozi Manage</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">manage.err404memory.com</p>
+          <h1>Todozi manage</h1>
+          <p class="lede">
+            Browser front door for the shared Todozi backend on nova. Projects, tasks,
+            queue, search, and quick edits stay in one place.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-btn" class="secondary">Refresh</button>
+          <a class="ghost" href="/api/health" target="_blank" rel="noreferrer">Health</a>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="panel sidebar">
+          <div class="panel-header">
+            <h2>Projects</h2>
+            <span id="project-count" class="badge">0</span>
+          </div>
+          <div id="project-list" class="stack"></div>
+
+          <section class="subpanel">
+            <div class="panel-header">
+              <h3>Create project</h3>
+            </div>
+            <form id="project-form" class="form stack-tight">
+              <label>
+                Name
+                <input name="name" required placeholder="design-system" />
+              </label>
+              <label>
+                Description
+                <textarea name="description" rows="3" placeholder="Shared dashboard workstream"></textarea>
+              </label>
+              <button type="submit">Add project</button>
+            </form>
+          </section>
+        </aside>
+
+        <section class="panel main">
+          <div class="stats" id="stats"></div>
+
+          <section class="subpanel">
+            <div class="panel-header">
+              <h2>Search and capture</h2>
+            </div>
+            <form id="search-form" class="search-row">
+              <input id="search-input" name="q" placeholder="Search tasks or text" />
+              <button type="submit">Search</button>
+              <button id="clear-search" type="button" class="secondary">Clear</button>
+            </form>
+          </section>
+
+          <section class="subpanel">
+            <div class="panel-header">
+              <h2>Quick task</h2>
+            </div>
+            <form id="task-form" class="form task-form">
+              <label class="wide">
+                Action
+                <input name="action" required placeholder="Finalize Telegram bot config" />
+              </label>
+              <label>
+                Project
+                <select name="parent_project" id="task-project"></select>
+              </label>
+              <label>
+                Time
+                <input name="time" placeholder="ASAP or 2026-05-13T12:00:00Z" />
+              </label>
+              <label>
+                Priority
+                <select name="priority">
+                  <option value="low">low</option>
+                  <option value="medium" selected>medium</option>
+                  <option value="high">high</option>
+                  <option value="urgent">urgent</option>
+                </select>
+              </label>
+              <div class="actions">
+                <button type="submit">Create task</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="subpanel">
+            <div class="panel-header">
+              <h2>Tasks</h2>
+              <span id="task-count" class="badge">0</span>
+            </div>
+            <div class="task-toolbar">
+              <span id="filter-chip" class="chip">All projects</span>
+              <span id="search-chip" class="chip hidden"></span>
+            </div>
+            <div id="task-list" class="task-list"></div>
+          </section>
+        </section>
+
+        <aside class="panel detail">
+          <div class="panel-header">
+            <h2>Selected task</h2>
+          </div>
+          <div id="task-detail" class="detail-empty">
+            Pick a task to inspect or edit it.
+          </div>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>
