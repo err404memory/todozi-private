@@ -49,9 +49,9 @@ Browser front door for Todozi on satellite/nova.
 
 - What changed: Implemented the "2a" screen from the `Layout and progressive disclosure`
   Claude Design handoff. Replaced the mode-tab/filter-form header with a top bar (search
-  omnibar with `/task`, `/idea`, `/err` capture prefixes, queue/error counts, sync
+  omnibar with `/task`, `/idea`, `/err`, `/queue` capture prefixes, queue/error counts, sync
   indicator) and an axis/fold toolbar (group-by chips for project/urgency/priority/status/tag,
-  fold-rule chips for done/blocked, fold all/unfold all).
+  fold-rule chips for done/later/low priority, fold all/unfold all).
 - What changed: Rebuilt the task list as a grouped stream: group headers carry a
   count/summary/priority-mix-bar/percent-done and a per-group expand-rows toggle. Fold rules
   never delete rows — hidden items collapse into a dashed "N folded here" residue row with
@@ -98,6 +98,13 @@ Browser front door for Todozi on satellite/nova.
   `~/.todozi/attachments/<task_id>/` plus a path ref pointing at it — no upload widget was
   built, to avoid adding a dependency to an otherwise zero-dependency app. Manual row
   reordering is view-local (per axis/group, in `localStorage`) rather than a backend field.
+  27/27 headless checks passing covers UI interaction only, not the full PR: manual backend
+  smoke testing against a real Todozi/nova deployment is still outstanding, and a structured
+  code review found 18 issues not yet triaged at the time those checks ran (some have since
+  been fixed on top of this entry — see PR #1 for current status), including the keyboard
+  `Enter` expand shortcut extracting the wrong id, task-step data never refreshing after the
+  first load, ref counts not populating on collapsed rows, an unawaited-fetch race in the
+  delete-impact preview, and `dependentsOf` driving an O(n²) render on large task lists.
 
 ### 2026-08-11 — Wrapped titles, toggled sub-actions, and stronger hierarchy
 

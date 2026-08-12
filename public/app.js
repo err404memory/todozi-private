@@ -383,8 +383,26 @@ function isBlocked(task) {
   return openDependencies(task).length > 0;
 }
 
+let dependentsIndex = null;
+
+function invalidateRelationshipCache() {
+  dependentsIndex = null;
+}
+
+function getDependentsIndex() {
+  if (dependentsIndex) return dependentsIndex;
+  dependentsIndex = new Map();
+  for (const task of allTasks()) {
+    for (const depId of task.dependencies || []) {
+      if (!dependentsIndex.has(depId)) dependentsIndex.set(depId, []);
+      dependentsIndex.get(depId).push(task);
+    }
+  }
+  return dependentsIndex;
+}
+
 function dependentsOf(taskId) {
-  return allTasks().filter((task) => (task.dependencies || []).includes(taskId));
+  return getDependentsIndex().get(taskId) || [];
 }
 
 function urgencyBucket(task) {
@@ -416,10 +434,23 @@ function deriveEffort(task) {
   return "day+";
 }
 
+function containsWholeId(haystack, id) {
+  const idChar = /[A-Za-z0-9_]/;
+  let from = 0;
+  for (;;) {
+    const index = haystack.indexOf(id, from);
+    if (index === -1) return false;
+    const before = haystack[index - 1];
+    const after = haystack[index + id.length];
+    if (!(before && idChar.test(before)) && !(after && idChar.test(after))) return true;
+    from = index + 1;
+  }
+}
+
 function mentionsTaskId(task, taskId) {
   const note = task.context_notes || "";
   const summary = state.taskSteps[task.id]?.data?.summary || "";
-  return note.includes(taskId) || summary.includes(taskId);
+  return containsWholeId(note, taskId) || containsWholeId(summary, taskId);
 }
 
 function backlinksFor(taskId) {
@@ -697,23 +728,29 @@ async function ensureRowData(taskId) {
   if (state.selectedTaskId === taskId) renderTaskDetail();
 }
 
+function peekKey(taskId, refId) {
+  return `${taskId}::${refId}`;
+}
+
 async function toggleRefPeek(taskId, refId) {
-  if (state.openPeeks.has(refId)) {
-    state.openPeeks.delete(refId);
+  const key = peekKey(taskId, refId);
+  if (state.openPeeks.has(key)) {
+    state.openPeeks.delete(key);
     renderTaskStream();
     return;
   }
-  state.openPeeks.add(refId);
-  state.peeks[refId] = { loading: true };
-  renderTaskStream();
   const task = findTask(taskId);
+  if (!task) return;
+  state.openPeeks.add(key);
+  state.peeks[key] = { loading: true };
+  renderTaskStream();
   try {
     const data = await api(
       `/api/tasks/${encodeURIComponent(taskId)}/refs/peek?refId=${encodeURIComponent(refId)}&project=${encodeURIComponent(formatTaskProject(task))}`,
     );
-    state.peeks[refId] = { data };
+    state.peeks[key] = { data };
   } catch (error) {
-    state.peeks[refId] = { error: error.message };
+    state.peeks[key] = { error: error.message };
   }
   renderTaskStream();
 }
@@ -727,7 +764,7 @@ async function removeRef(taskId, refId) {
       body: JSON.stringify({ refs: nextRefs }),
     });
     state.taskRefs[taskId] = { data };
-    state.openPeeks.delete(refId);
+    state.openPeeks.delete(peekKey(taskId, refId));
     renderTaskStream();
     if (state.selectedTaskId === taskId) renderTaskDetail();
   } catch (error) {
@@ -790,12 +827,12 @@ function renderGitSummary(gitState) {
   return data.lastCommitAge ? `${branch} ${MDOT} ${escapeHtml(data.lastCommitAge)}` : branch;
 }
 
-function renderOpenPeeks(refs) {
-  const openRefs = refs.filter((ref) => state.openPeeks.has(ref.id));
+function renderOpenPeeks(refs, taskId) {
+  const openRefs = refs.filter((ref) => state.openPeeks.has(peekKey(taskId, ref.id)));
   if (!openRefs.length) return "";
   return openRefs
     .map((ref) => {
-      const peekState = state.peeks[ref.id];
+      const peekState = state.peeks[peekKey(taskId, ref.id)];
       if (!peekState || peekState.loading) {
         return `<div class="peek-panel"><div class="muted">loading&hellip;</div></div>`;
       }
@@ -833,7 +870,11 @@ function renderTaskStream() {
   const groups = buildGroups(axis);
   state.visibleRowOrder = [];
 
-  elements.taskCount.textContent = String(groups.reduce((total, group) => total + group.rows.length, 0));
+  const uniqueRowIds = new Set();
+  for (const group of groups) {
+    for (const row of group.rows) uniqueRowIds.add(row.task.id);
+  }
+  elements.taskCount.textContent = String(uniqueRowIds.size);
 
   elements.taskStream.innerHTML = groups.length
     ? groups.map((group) => renderGroup(group, axis)).join("")
@@ -1000,7 +1041,7 @@ function renderRowExpanded(task) {
         ${renderGitLine(gitState)}
       </div>
 
-      ${renderOpenPeeks(refs)}
+      ${renderOpenPeeks(refs, task.id)}
     </div>
   `;
 }
@@ -1343,36 +1384,40 @@ async function performDelete(task, mode) {
     },
   };
 
+  viewState.tombstones.push(snapshot);
+  saveViewState();
+
   try {
     await api(`/api/tasks/${encodeURIComponent(task.id)}`, {
       method: "PUT",
       body: JSON.stringify({ status: "deleted" }),
     });
 
-    for (const dependent of impact.dependents) {
-      const nextDeps =
-        mode === "unlink"
-          ? (dependent.dependencies || []).filter((id) => id !== task.id)
-          : [
-              ...new Set(
-                (dependent.dependencies || [])
-                  .map((id) => (id === task.id ? impact.primaryOwnDependency : id))
-                  .filter(Boolean),
-              ),
-            ];
-      await api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
-        method: "PUT",
-        body: JSON.stringify({ dependencies: nextDeps }),
-      });
-    }
+    await Promise.all(
+      impact.dependents.map((dependent) => {
+        const nextDeps =
+          mode === "unlink"
+            ? (dependent.dependencies || []).filter((id) => id !== task.id)
+            : [
+                ...new Set(
+                  (dependent.dependencies || [])
+                    .map((id) => (id === task.id ? impact.primaryOwnDependency : id))
+                    .filter(Boolean),
+                ),
+              ];
+        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ dependencies: nextDeps }),
+        });
+      }),
+    );
 
-    viewState.tombstones.push(snapshot);
-    saveViewState();
     state.confirmDeleteTaskId = null;
     state.selectedTaskId = null;
     await refreshAll();
     setMessage(`Deleted ${task.id}.`);
   } catch (error) {
+    await refreshAll();
     setMessage(`Delete failed: ${error.message}`, "error");
   }
 }
@@ -1385,12 +1430,14 @@ async function undoDelete(tombId) {
       method: "PUT",
       body: JSON.stringify({ status: snapshot.restore.previousStatus }),
     });
-    for (const dependent of snapshot.restore.dependents) {
-      await api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
-        method: "PUT",
-        body: JSON.stringify({ dependencies: dependent.previousDependencies }),
-      });
-    }
+    await Promise.all(
+      snapshot.restore.dependents.map((dependent) =>
+        api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ dependencies: dependent.previousDependencies }),
+        }),
+      ),
+    );
     viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== tombId);
     saveViewState();
     await refreshAll();
@@ -1722,13 +1769,14 @@ function renderPlatformResources() {
 
 /* ---------- panel toggles (capture / platform) ---------- */
 
-function togglePanel(key) {
+function togglePanel(key, resource) {
   const panel = key === "capture" ? elements.capturePanel : elements.platformPanel;
   const other = key === "capture" ? elements.platformPanel : elements.capturePanel;
-  const opening = panel.hidden;
+  const opening = resource ? true : panel.hidden;
   other.hidden = true;
   panel.hidden = !opening;
   if (opening && key === "platform") {
+    if (resource) selectedResource = resource;
     renderPlatformResources();
   }
 }
@@ -2411,7 +2459,7 @@ function handleGlobalKeydown(event) {
   } else if (event.key === "Enter") {
     if (state.focusedRowKey) {
       event.preventDefault();
-      const [, taskId] = state.focusedRowKey.split("::");
+      const taskId = state.focusedRowKey.split("::").pop();
       toggleRowExpanded(taskId);
     }
   } else if (event.key === "g") {
@@ -2440,17 +2488,33 @@ function handleGlobalKeydown(event) {
 
 /* ---------- boot ---------- */
 
-async function bulkLoadSteps() {
+async function bulkLoadSteps(force = false) {
   const tasks = state.bootstrap?.tasks || [];
   await Promise.all(
     tasks.map(async (task) => {
-      if (state.taskSteps[task.id]?.data) return;
+      if (!force && state.taskSteps[task.id]?.data) return;
       state.taskSteps[task.id] = { loading: true };
       try {
         const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
         state.taskSteps[task.id] = { data };
       } catch (error) {
         state.taskSteps[task.id] = { error: error.message };
+      }
+    }),
+  );
+}
+
+async function bulkLoadRefs(force = false) {
+  const tasks = state.bootstrap?.tasks || [];
+  await Promise.all(
+    tasks.map(async (task) => {
+      if (!force && state.taskRefs[task.id]?.data) return;
+      state.taskRefs[task.id] = { loading: true };
+      try {
+        const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
+        state.taskRefs[task.id] = { data };
+      } catch (error) {
+        state.taskRefs[task.id] = { error: error.message };
       }
     }),
   );
@@ -2463,10 +2527,14 @@ async function refreshAll() {
   try {
     state.bootstrap = await api("/api/bootstrap");
     state.platform = await api("/api/platform");
+    invalidateRelationshipCache();
+    state.taskGit = {};
     if (!state.selectedTaskId || !findTask(state.selectedTaskId) || taskIsDeleted(findTask(state.selectedTaskId))) {
       state.selectedTaskId = allTasks()[0]?.id || null;
     }
-    await bulkLoadSteps();
+    await Promise.all([bulkLoadSteps(true), bulkLoadRefs(true)]);
+    const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
+    await Promise.all(expandedIds.map((id) => ensureRowData(id)));
     renderAll();
     renderSyncIndicator(true);
   } catch (error) {
@@ -2567,7 +2635,7 @@ function wireEvents() {
   elements.queueForm.addEventListener("submit", handleQueueSubmit);
   elements.trainingForm.addEventListener("submit", handleTrainingSubmit);
   document.querySelectorAll("[data-panel-toggle]").forEach((button) => {
-    button.addEventListener("click", () => togglePanel(button.dataset.panelToggle));
+    button.addEventListener("click", () => togglePanel(button.dataset.panelToggle, button.dataset.panelResource));
   });
   document.addEventListener("keydown", handleGlobalKeydown);
 }

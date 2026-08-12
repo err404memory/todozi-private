@@ -1080,7 +1080,7 @@ a.ghost,
 }
 
 .tone-warn {
-  color: #d9843d;
+  color: var(--warn);
 }
 
 .tone-ok {
@@ -1638,7 +1638,13 @@ textarea {
   inline-size: 1px;
   block-size: 1px;
   overflow: hidden;
-  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.row-check input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .row-check span {

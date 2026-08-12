@@ -246,7 +246,15 @@ function readTaskRefs(taskId) {
   if (!fs.existsSync(filePath)) {
     return defaultRefs(taskId);
   }
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.refs)) {
+      return defaultRefs(taskId);
+    }
+    return parsed;
+  } catch (error) {
+    return defaultRefs(taskId);
+  }
 }
 
 function normalizeRef(ref, index) {
@@ -324,10 +332,11 @@ async function gitStatusFor(taskId, projectName) {
     return { configured: false };
   }
 
+  const safeId = safeTaskId(taskId);
   const [branch, lastCommit, lastCommitAge, aheadBehind, statusPorcelain] = await Promise.all([
     runGit(repoPath, ["branch", "--show-current"]),
-    runGit(repoPath, ["log", `--grep=${taskId}`, "--oneline", "-1"]),
-    runGit(repoPath, ["log", `--grep=${taskId}`, "--format=%cr", "-1"]),
+    runGit(repoPath, ["log", `--grep=${safeId}`, "--fixed-strings", "--oneline", "-1"]),
+    runGit(repoPath, ["log", `--grep=${safeId}`, "--fixed-strings", "--format=%cr", "-1"]),
     runGit(repoPath, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
     runGit(repoPath, ["status", "--porcelain"]),
   ]);
@@ -357,15 +366,31 @@ async function gitStatusFor(taskId, projectName) {
   };
 }
 
+const MAX_PEEK_BYTES = 2 * 1024 * 1024;
+
 async function peekFile(projectName, refPath, line) {
   const repoPath = resolveRepoPath(projectName);
   if (!repoPath) {
     throw new Error("No repo configured for this project.");
   }
-  const resolved = path.resolve(repoPath, refPath);
-  const withSep = repoPath.endsWith(path.sep) ? repoPath : `${repoPath}${path.sep}`;
-  if (resolved !== repoPath && !resolved.startsWith(withSep)) {
+  const lexical = path.resolve(repoPath, refPath);
+  let resolved;
+  try {
+    resolved = fs.realpathSync(lexical);
+  } catch (error) {
+    throw new Error("Ref path is not readable.");
+  }
+  const repoReal = fs.realpathSync(repoPath);
+  const withSep = repoReal.endsWith(path.sep) ? repoReal : `${repoReal}${path.sep}`;
+  if (resolved !== repoReal && !resolved.startsWith(withSep)) {
     throw new Error("Ref path escapes the configured repo.");
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) {
+    throw new Error("Ref path is not a file.");
+  }
+  if (stat.size > MAX_PEEK_BYTES) {
+    throw new Error("File is too large to peek.");
   }
   const content = fs.readFileSync(resolved, "utf8");
   const allLines = content.split("\n");

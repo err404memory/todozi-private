@@ -17,6 +17,7 @@
             <input
               id="omni-input"
               name="q"
+              aria-label="Search tasks or capture with a slash command"
               placeholder="search &middot; /task /idea /err /queue to capture &middot; g to regroup"
               autocomplete="off"
             />
@@ -24,7 +25,7 @@
           <div class="topbar-stats">
             <span>queue <strong id="stat-queue">0</strong></span>
             <span class="tone-warn">errors <strong id="stat-errors">0</strong></span>
-            <span id="sync-indicator" class="sync-indicator">booting&hellip;</span>
+            <span id="sync-indicator" class="sync-indicator" role="status" aria-live="polite">booting&hellip;</span>
             <button id="refresh-btn" type="button" class="secondary">Refresh</button>
             <a class="ghost" href="/api/health" target="_blank" rel="noreferrer">Health</a>
           </div>
@@ -62,13 +63,13 @@
 
           <div class="rail-block platform-block">
             <div class="rail-title">Platform</div>
-            <button type="button" class="rail-row" data-panel-toggle="platform">
+            <button type="button" class="rail-row" data-panel-toggle="platform" data-panel-resource="activeQueue">
               Queue<span id="rail-queue">0</span>
             </button>
-            <button type="button" class="rail-row" data-panel-toggle="platform">
+            <button type="button" class="rail-row" data-panel-toggle="platform" data-panel-resource="ideas">
               Ideas<span id="rail-ideas">0</span>
             </button>
-            <button type="button" class="rail-row tone-warn" data-panel-toggle="platform">
+            <button type="button" class="rail-row tone-warn" data-panel-toggle="platform" data-panel-resource="errors">
               Errors<span id="rail-errors">0</span>
             </button>
           </div>
