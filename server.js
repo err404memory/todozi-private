@@ -4,6 +4,11 @@ const path = require("node:path");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+const TODOZI_DIR = path.join(process.env.HOME || "/home/ash", ".todozi");
+const STEPS_DIR = path.join(TODOZI_DIR, "steps");
+const IDEAS_DIR = path.join(TODOZI_DIR, "ideas");
+const PROJECT_TASKS_DIR = path.join(TODOZI_DIR, "project_tasks");
+const LEGACY_TASKS_DIR = path.join(TODOZI_DIR, "tasks");
 
 const config = {
   host: process.env.MANAGE_HOST || "100.75.128.38",
@@ -146,6 +151,317 @@ function taskProject(task) {
   return task.parent_project || task.project || task.project_name || "general";
 }
 
+function readJsonFile(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function writeJsonFile(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function safeTaskId(taskId) {
+  const cleaned = String(taskId || "").trim();
+  if (!/^[A-Za-z0-9_.-]+$/.test(cleaned)) {
+    throw new Error("Invalid task id.");
+  }
+  return cleaned;
+}
+
+function stepsPath(taskId) {
+  return path.join(STEPS_DIR, `${safeTaskId(taskId)}.json`);
+}
+
+function defaultSteps(taskId) {
+  return {
+    created_at: new Date().toISOString(),
+    project_id: "general",
+    status: "active",
+    steps: [],
+    summary: "",
+    task_id: safeTaskId(taskId),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function readTaskSteps(taskId) {
+  const filePath = stepsPath(taskId);
+  if (!fs.existsSync(filePath)) {
+    return defaultSteps(taskId);
+  }
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function writeTaskSteps(taskId, payload) {
+  fs.mkdirSync(STEPS_DIR, { recursive: true });
+  const existing = readTaskSteps(taskId);
+  const steps = Array.isArray(payload.steps)
+    ? payload.steps
+        .map((step) => {
+          if (step && typeof step === "object") {
+            return {
+              text: String(step.text || step.title || step.action || "").trim(),
+              done: Boolean(step.done || step.completed || step.checked),
+            };
+          }
+          return {
+            text: String(step || "").trim(),
+            done: false,
+          };
+        })
+        .filter((step) => step.text)
+    : [];
+  const next = {
+    ...existing,
+    task_id: safeTaskId(taskId),
+    project_id: typeof payload.project_id === "string" && payload.project_id.trim()
+      ? payload.project_id.trim()
+      : existing.project_id || "general",
+    status: typeof payload.status === "string" && payload.status.trim() ? payload.status.trim() : existing.status || "active",
+    summary: typeof payload.summary === "string" ? payload.summary : existing.summary || "",
+    steps,
+    updated_at: new Date().toISOString(),
+  };
+  fs.writeFileSync(stepsPath(taskId), `${JSON.stringify(next, null, 2)}\n`);
+  return next;
+}
+
+function normalizeTaskPatch(payload) {
+  const patch = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (value === undefined) {
+      continue;
+    }
+    if (["tags", "dependencies"].includes(key)) {
+      patch[key] = Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+    } else if (key === "progress") {
+      patch[key] = value === null || value === "" ? 0 : Number(value);
+    } else if (typeof value === "string") {
+      patch[key] = value.trim();
+    } else {
+      patch[key] = value;
+    }
+  }
+  return patch;
+}
+
+function updateTaskBucket(container, bucket, taskId, patch, now) {
+  if (!container || !container[bucket] || !container[bucket][taskId]) {
+    return null;
+  }
+  const task = {
+    ...container[bucket][taskId],
+    ...patch,
+    id: taskId,
+    updated_at: now,
+  };
+  container[bucket][taskId] = task;
+  container.updated_at = now;
+  return task;
+}
+
+function updateLocalTaskStore(taskId, payload) {
+  const safeId = safeTaskId(taskId);
+  const patch = normalizeTaskPatch(payload);
+  const now = new Date().toISOString();
+  const buckets = ["active_tasks", "completed_tasks", "archived_tasks", "deleted_tasks", "tasks"];
+  let updated = null;
+
+  if (fs.existsSync(PROJECT_TASKS_DIR)) {
+    for (const fileName of fs.readdirSync(PROJECT_TASKS_DIR)) {
+      if (!fileName.endsWith(".json")) {
+        continue;
+      }
+      const filePath = path.join(PROJECT_TASKS_DIR, fileName);
+      const container = readJsonFile(filePath);
+      for (const bucket of buckets) {
+        const task = updateTaskBucket(container, bucket, safeId, patch, now);
+        if (task) {
+          writeJsonFile(filePath, container);
+          updated = task;
+          break;
+        }
+      }
+      if (updated) {
+        break;
+      }
+    }
+  }
+
+  if (fs.existsSync(LEGACY_TASKS_DIR)) {
+    for (const fileName of ["active.json", "completed.json", "archived.json"]) {
+      const filePath = path.join(LEGACY_TASKS_DIR, fileName);
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      const container = readJsonFile(filePath);
+      const task = updateTaskBucket(container, "tasks", safeId, patch, now);
+      if (task) {
+        writeJsonFile(filePath, container);
+        updated = task;
+      }
+    }
+  }
+
+  return updated;
+}
+
+function readLocalIdeas() {
+  if (!fs.existsSync(IDEAS_DIR)) {
+    return [];
+  }
+
+  return fs.readdirSync(IDEAS_DIR)
+    .filter((fileName) => fileName.endsWith(".json"))
+    .sort()
+    .flatMap((fileName) => {
+      const filePath = path.join(IDEAS_DIR, fileName);
+      try {
+        return [JSON.parse(fs.readFileSync(filePath, "utf8"))];
+      } catch (error) {
+        return [{
+          id: `invalid_${fileName.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+          idea: `Invalid local idea file: ${fileName}`,
+          importance: "low",
+          share: "private",
+          error: error.message,
+        }];
+      }
+    });
+}
+
+function normalizeIdeaPayload(payload) {
+  const now = new Date().toISOString();
+  const title = typeof payload.title === "string" ? payload.title.trim() : "";
+  const description = typeof payload.description === "string" ? payload.description.trim() : "";
+  const idea = typeof payload.idea === "string" && payload.idea.trim()
+    ? payload.idea.trim()
+    : [title, description].filter(Boolean).join(": ");
+
+  if (!idea) {
+    throw new Error("Idea text is required.");
+  }
+
+  const tags = Array.isArray(payload.tags)
+    ? payload.tags.map((tag) => String(tag).trim()).filter(Boolean)
+    : typeof payload.tags === "string"
+      ? payload.tags.split(",").map((tag) => tag.trim()).filter(Boolean)
+      : [];
+
+  return {
+    id: `idea_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    idea,
+    title: title || idea.slice(0, 80),
+    description,
+    importance: typeof payload.importance === "string" && payload.importance.trim()
+      ? payload.importance.trim()
+      : typeof payload.priority === "string" && payload.priority.trim()
+        ? payload.priority.trim()
+        : "medium",
+    share: typeof payload.share === "string" && payload.share.trim() ? payload.share.trim() : "private",
+    category: typeof payload.category === "string" ? payload.category.trim() : "",
+    context: typeof payload.context === "string" ? payload.context.trim() : "",
+    tags,
+    source: "todozi-manage-local",
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function writeLocalIdea(payload) {
+  fs.mkdirSync(IDEAS_DIR, { recursive: true });
+  const idea = normalizeIdeaPayload(payload);
+  const filePath = path.join(IDEAS_DIR, `${idea.id}.json`);
+  fs.writeFileSync(filePath, `${JSON.stringify(idea, null, 2)}\n`);
+  return idea;
+}
+
+function normalizeItems(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  for (const key of ["items", "tasks", "memories", "ideas", "errors", "training", "agents", "chunks", "backups", "data"]) {
+    if (Array.isArray(value[key])) {
+      return value[key];
+    }
+  }
+  return [];
+}
+
+function projectOptions(projects, tasks) {
+  const byName = new Map();
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const name = project.name || project.project_name || "";
+    if (name) {
+      byName.set(name, { ...project, name });
+    }
+  }
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const name = taskProject(task);
+    if (!byName.has(name)) {
+      byName.set(name, { name, description: "Derived from tasks" });
+    }
+  }
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function collectPlatformData() {
+  const requests = {
+    health: todoziRequest("GET", "/health"),
+    stats: todoziRequest("GET", "/stats"),
+    agents: todoziRequest("GET", "/agents"),
+    availableAgents: todoziRequest("GET", "/agents/available"),
+    memories: todoziRequest("GET", "/memories"),
+    memoryTypes: todoziRequest("GET", "/memories/types"),
+    ideas: todoziRequest("GET", "/ideas"),
+    errors: todoziRequest("GET", "/errors"),
+    training: todoziRequest("GET", "/training"),
+    trainingStats: todoziRequest("GET", "/training/stats"),
+    chunks: todoziRequest("GET", "/chunks"),
+    readyChunks: todoziRequest("GET", "/chunks/ready"),
+    chunkGraph: todoziRequest("GET", "/chunks/graph"),
+    agentAnalytics: todoziRequest("GET", "/analytics/agents"),
+    performance: todoziRequest("GET", "/analytics/performance"),
+    timeReport: todoziRequest("GET", "/time/report"),
+    backups: todoziRequest("GET", "/backups"),
+  };
+
+  const settled = await Promise.all(
+    Object.entries(requests).map(async ([key, promise]) => {
+      try {
+        return [key, await promise, null];
+      } catch (error) {
+        return [key, null, error];
+      }
+    }),
+  );
+  const data = {};
+  const errors = {};
+  for (const [key, value, error] of settled) {
+    if (error) {
+      errors[key] = error.message;
+    } else {
+      data[key] = value;
+    }
+  }
+
+  const localIdeas = readLocalIdeas();
+  if (localIdeas.length) {
+    const byId = new Map();
+    for (const idea of normalizeItems(data.ideas)) {
+      byId.set(idea.id || JSON.stringify(idea), idea);
+    }
+    for (const idea of localIdeas) {
+      byId.set(idea.id || JSON.stringify(idea), idea);
+    }
+    data.ideas = [...byId.values()];
+  }
+
+  return { data, errors };
+}
+
 async function bootstrapData() {
   const [projectsResult, tasksResult, queueResult, analyticsResult] = await Promise.allSettled([
     todoziRequest("GET", "/projects"),
@@ -154,9 +470,13 @@ async function bootstrapData() {
     todoziRequest("GET", "/analytics/tasks"),
   ]);
 
+  const rawProjects = projectsResult.status === "fulfilled" ? projectsResult.value : [];
+  const tasks = tasksResult.status === "fulfilled" ? tasksResult.value : [];
+
   return {
-    projects: projectsResult.status === "fulfilled" ? projectsResult.value : [],
-    tasks: tasksResult.status === "fulfilled" ? tasksResult.value : [],
+    projects: projectOptions(rawProjects, tasks),
+    rawProjects,
+    tasks,
     activeQueue: queueResult.status === "fulfilled" ? queueResult.value : [],
     analytics: analyticsResult.status === "fulfilled" ? analyticsResult.value : null,
     errors: {
@@ -174,7 +494,17 @@ async function handleApi(req, res, pathname, query) {
     return sendJson(res, 200, data);
   }
 
+  if (req.method === "GET" && pathname === "/api/platform") {
+    const data = await collectPlatformData();
+    return sendJson(res, 200, data);
+  }
+
   if (req.method === "GET" && pathname === "/api/projects") {
+    const [projects, tasks] = await Promise.all([todoziRequest("GET", "/projects"), todoziRequest("GET", "/tasks")]);
+    return sendJson(res, 200, projectOptions(projects, tasks));
+  }
+
+  if (req.method === "GET" && pathname === "/api/raw-projects") {
     const projects = await todoziRequest("GET", "/projects");
     return sendJson(res, 200, projects);
   }
@@ -232,6 +562,55 @@ async function handleApi(req, res, pathname, query) {
     return sendJson(res, 200, result);
   }
 
+  if (req.method === "POST" && pathname === "/api/memories") {
+    const payload = await readJsonBody(req);
+    const result = await todoziRequest("POST", "/memories", { body: payload, useAdmin: true });
+    return sendJson(res, 200, result);
+  }
+
+  if (req.method === "POST" && pathname === "/api/ideas") {
+    const payload = await readJsonBody(req);
+    const idea = writeLocalIdea(payload);
+    return sendJson(res, 200, { stored: "local", idea });
+  }
+
+  if (req.method === "POST" && pathname === "/api/errors") {
+    const payload = await readJsonBody(req);
+    const result = await todoziRequest("POST", "/errors", { body: payload, useAdmin: true });
+    return sendJson(res, 200, result);
+  }
+
+  if (req.method === "POST" && pathname === "/api/training") {
+    const payload = await readJsonBody(req);
+    const result = await todoziRequest("POST", "/training", { body: payload, useAdmin: true });
+    return sendJson(res, 200, result);
+  }
+
+  const timeMatch = pathname.match(/^\/api\/time\/(start|stop)\/([^/]+)$/);
+  if (timeMatch && req.method === "POST") {
+    const action = timeMatch[1];
+    const taskId = decodeURIComponent(timeMatch[2]);
+    const result = await todoziRequest("POST", `/time/${action}/${encodeURIComponent(taskId)}`, { useAdmin: true });
+    return sendJson(res, 200, result);
+  }
+
+  if (req.method === "POST" && pathname === "/api/backups") {
+    const result = await todoziRequest("POST", "/backup", { useAdmin: true });
+    return sendJson(res, 200, result);
+  }
+
+  const stepsMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/steps$/);
+  if (stepsMatch) {
+    const taskId = decodeURIComponent(stepsMatch[1]);
+    if (req.method === "GET") {
+      return sendJson(res, 200, readTaskSteps(taskId));
+    }
+    if (req.method === "PUT") {
+      const payload = await readJsonBody(req);
+      return sendJson(res, 200, writeTaskSteps(taskId, payload));
+    }
+  }
+
   const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
   if (taskMatch) {
     const taskId = decodeURIComponent(taskMatch[1]);
@@ -243,6 +622,10 @@ async function handleApi(req, res, pathname, query) {
 
     if (req.method === "PUT") {
       const payload = await readJsonBody(req);
+      const localTask = updateLocalTaskStore(taskId, payload);
+      if (localTask) {
+        return sendJson(res, 200, { ...localTask, stored: "local" });
+      }
       const task = await todoziRequest("PUT", `/tasks/${encodeURIComponent(taskId)}`, {
         body: payload,
         useAdmin: true,
@@ -298,6 +681,10 @@ async function requestHandler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || `${config.host}:${config.port}`}`);
     const { pathname, searchParams } = url;
 
+    if (req.method === "HEAD" && pathname === "/") {
+      return sendText(res, 200, "", "text/html; charset=utf-8");
+    }
+
     if (req.method === "GET" && pathname === "/") {
       return serveAsset(res, "index.html");
     }
@@ -322,7 +709,14 @@ async function requestHandler(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  requestHandler(req, res);
+  requestHandler(req, res).catch((error) => {
+    console.error(error);
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: error.message || "Unexpected error" });
+    } else {
+      res.end();
+    }
+  });
 });
 
 server.listen(config.port, config.host, () => {

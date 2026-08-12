@@ -1,0 +1,14 @@
+[Unit]
+Description=Todozi backend server on satellite
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ash
+ExecStart=/usr/bin/env bash /home/ash/storage/service-wing/engine-room/todozi-manage/deploy/run-satellite-todozi.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

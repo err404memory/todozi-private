@@ -1,6 +1,6 @@
 # todozi-manage
 
-Browser front door for Todozi on nova.
+Browser front door for Todozi on satellite/nova.
 
 ## Purpose
 
@@ -10,16 +10,243 @@ Browser front door for Todozi on nova.
 
 ## Active Objectives
 
-- Objective: ship `manage.err404memory.com` as the browser front door for Todozi on nova.
-- Planned locations: `server.js`, `public/`, `deploy/`, and the `err404memory-hosts` ingress bundle.
+- None.
 
 ## Current Status
 
 - App root scaffolded.
 - Browser UI and Todozi proxy routes are in place in the local checkout.
-- Nova install, host ingress, and DNS validation still need to be applied.
+- Satellite service is active at `http://100.115.124.101:3044`, proxying to
+  `todozi.service` at `http://100.115.124.101:8636`.
+- Project display derives missing project names from `/tasks`, because Todozi's raw
+  `/projects` endpoint currently reports only `general`.
+- The browser UI mirrors the remembered Todozi TUI sections with Projects, Tasks, Done,
+  Find, More, API, and Feed modes, plus status/priority/project filters.
+- Task steps are exposed through local manage routes backed by
+  `/home/ash/.todozi/steps/*.json`.
+- Ideas are exposed through local manage fallback records in `/home/ash/.todozi/ideas/*.json`
+  because Todozi's native idea commands are currently stubs and the backend idea write route
+  times out.
+- Visible task cards include interactive checkboxes that toggle Todozi task status between
+  `todo` and `done`.
 
 ## Session Log
+
+### 2026-08-11 — Wrapped titles, toggled sub-actions, and stronger hierarchy
+
+- What changed: Changed the selected-task inline title editor from a single-line input to
+  an auto-growing textarea so long task titles wrap inside the task data panel while still
+  saving through Todozi's existing `action` field.
+- What changed: Updated task-card clicks so selecting a different card opens its
+  sub-actions, while clicking the already-selected card toggles its sub-action panel
+  closed or open.
+- What changed: Tightened the dense UI further and added stronger hierarchy cues: panel
+  headers now read as section bars, selected cards/detail headings use left rules, nested
+  notes/steps/dependencies/fields have grouped backgrounds, and repeated card spacing is
+  smaller.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`; `/api/health` returned OK. Headless browser
+  verification confirmed the title editor is a wrapping textarea, long titles do not
+  overflow the panel, repeated card clicks open/close/open sub-actions, and the tighter
+  hierarchy styles are applied.
+- Remaining blockers or next steps: None for this UI pass.
+
+### 2026-08-11 — Inline title editing and compact scan density
+
+- What changed: Replaced the selected-task title button plus separate action textarea with
+  an inline editable task-title input that still submits the Todozi `action` field through
+  the existing Save Task form.
+- What changed: Removed Start Timer and Stop Timer controls from the selected-task panel
+  and deleted the now-unused client handlers. Dependency add still uses the queried
+  existing-task datalist and now prompts `Search task id`.
+- What changed: Tightened the active browser shell density: smaller task/project/resource
+  cards, reduced panel padding and row gaps, smaller metadata/field/dependency controls,
+  and a more compact selected-task panel.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`. Headless browser verification confirmed no
+  `.action-editor`, no timer action buttons, inline title editing updates
+  `FormData(action)` without saving during the probe, dependency lookup exposes 25 task
+  options, and rendered card/panel padding is compact.
+- Remaining blockers or next steps: Save Task remains the explicit persistence action for
+  edited titles and dependency add/remove changes.
+
+### 2026-08-11 — Selected-task title, completion, tags, and dependencies refined
+
+- What changed: Removed the static `Selected task` panel header. The selected task now
+  renders its own title inside the panel; clicking that title focuses and selects the
+  editable action textarea.
+- What changed: Removed the Mark Done button and added a synced completion checkbox in the
+  top-right of the selected-task panel. The panel checkbox and main task-card checkbox use
+  the same task update path and stay in sync after refresh.
+- What changed: Moved tags into the compact metadata strip and redesigned dependencies as
+  row-based dependency controls with add/remove behavior and checkbox-style status for
+  matched dependency tasks.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`. Headless browser verification confirmed the static
+  header is absent, title click focuses the editor, completion toggles sync between panel
+  and card, the Mark Done button is absent, tags are in the metadata row, and dependency
+  add/remove updates the hidden saved field. The test task was restored to `done` with
+  progress `100` and no dependencies.
+- Remaining blockers or next steps: Dependency rows can toggle matched dependency task
+  status, but dependency edits still require Save Task to persist add/remove changes.
+
+### 2026-08-11 — Readable fields and compact metadata controls
+
+- What changed: Replaced raw JSON display in selected-task details and platform resource
+  cards with closed-by-default `Fields in use` disclosures that show human-readable
+  key/value rows while preserving the exact field names.
+- What changed: Moved the task action textarea to the top of the selected-task form under
+  the title, metadata, and tags. Replaced large project/priority/status inputs with
+  compact ghosted option selectors that update the existing hidden form fields.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`. Headless browser verification found zero `<pre>` raw
+  JSON blocks, 24 closed field disclosures, 23 platform resource field disclosures, three
+  closed metadata selectors, and the action textarea as the first visible detail control.
+- Remaining blockers or next steps: Time and progress remain compact inline inputs rather
+  than option-list selectors because they do not yet have a stable finite option set.
+
+### 2026-08-11 — Task notes and checkable sub-actions refined
+
+- What changed: Moved task notes onto task cards as visible summaries, made task-card
+  clicks automatically open the collapsible sub-action panel, and changed saved steps from
+  ordered display items into checkable subtasks.
+- What changed: Updated step persistence to accept both legacy string steps and newer
+  `{ text, done }` step records, preserving existing plain step files while allowing
+  subtask checkbox state to persist.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`. Headless browser verification confirmed
+  `task_fa2d73cd` shows its task note, card click opens five sub-actions, a subtask
+  checkbox persists and was restored, and the disclosure marker collapses the panel.
+- Remaining blockers or next steps: The side-panel step editor remains line-based; it
+  preserves checked state for unchanged step text but does not yet expose checkbox editing
+  inside the editor itself.
+
+### 2026-08-11 — Collapsible task-card steps added
+
+- What changed: Added collapsible steps panels to visible task cards in `public/app.js` and
+  `public/styles.css`. Each card now has a steps toggle that lazy-loads the existing
+  `/api/tasks/:id/steps` record and shows the saved implementation summary and ordered
+  step list inline.
+- Current status: `node --check public/app.js` and `node --check server.js` passed.
+  Restarted `todozi-manage.service`. Headless browser verification expanded
+  `task_fa2d73cd`, loaded its five saved steps, collapsed the panel, and selected the task
+  normally.
+- Remaining blockers or next steps: Existing tasks without saved steps show an empty-state
+  prompt; richer AI-generated step suggestions can be added later as a separate write path.
+
+### 2026-08-11 — Completion controls restored
+
+- What changed: Fixed checkbox, Mark Done, and Save Task writes by routing
+  `PUT /api/tasks/:id` through a local Todozi task-store updater before falling back to
+  the hanging upstream HTTP update route.
+- Current status: `node --check server.js` and `node --check public/app.js` passed.
+  Restarted `todozi-manage.service`. Verified in a headless browser that a visible task
+  checkbox changed `task_5ccd8c5f` from `done` to `todo`, then Mark Done changed it back to
+  `done`; final bootstrap status is `done` with progress `100`.
+- Remaining blockers or next steps: The upstream `tdz`-owned `PUT /tasks/:id` route still
+  times out, so the manager uses local store writes for task updates while that backend
+  route remains unreliable.
+
+### 2026-08-11 — Task-card reselection fixed
+
+- What changed: Fixed task-card selection in `public/app.js` by rebinding task card and
+  checkbox handlers after the task list re-renders from a card click.
+- Current status: `node --check public/app.js` passed. A headless browser clicked four
+  different visible task cards through `http://100.115.124.101:3044`, and the side-panel
+  heading updated to each selected task.
+- Remaining blockers or next steps: A future cleanup can replace manual rebinding with
+  delegated list-level click handling.
+
+### 2026-08-11 — Chat highlights moved onto Clipboard
+
+- What changed: Added interactive checkboxes to visible task cards in `public/app.js` and
+  `public/styles.css`, using the existing task update route to toggle tasks between `todo`
+  and `done`.
+- What changed: Captured the chat highlights into Slated/Clipboard state. Added 6 active
+  `slated` project tasks covering the record taxonomy, backend-backed FrankenTUI, agent
+  logging contract, Ollama/Open WebUI provider lane, local persistence hardening, and
+  release/name boundary checks.
+- What changed: Added 4 categorized local idea records for the SynapseFS/Slated boundary,
+  Slated surface design, AI provider plan, and backend write-path caveat.
+- Current status: `todozi-manage.service` is active at `http://100.115.124.101:3044`.
+  Verified `/api/bootstrap` reports 12 projects and 26 tasks, including 6 `slated` tasks.
+  Verified `/api/platform` reports 6 ideas, including 5 Slated records. A tall screenshot
+  confirmed the task checkboxes render in the visible task list.
+- Remaining blockers or next steps: Task updates still depend on Todozi backend write
+  responsiveness; backend timeout handling was hardened so manager-level async failures
+  return an error instead of exiting the Node process.
+
+### 2026-08-11 — Slated idea captured
+
+- What changed: Added local idea persistence in `server.js`. `POST /api/ideas` now writes a
+  local JSON idea record under `/home/ash/.todozi/ideas/`, and `/api/platform` merges local
+  ideas with any backend ideas returned by Todozi.
+- What changed: Captured `Slated working name` as a private, medium-importance product idea
+  tagged `slated`, `naming`, `product-direction`, `todozi-derived`, and
+  `mother-clipboard`.
+- Current status: `todozi-manage.service` is active at `http://100.115.124.101:3044`;
+  `/api/platform` returned 2 ideas total and includes the Slated record.
+- Remaining blockers or next steps: Todozi's native `tdz idea create/list` commands still
+  report that the feature is coming soon. The previous backend `/ideas` write timed out and
+  restarted the manager before this local fallback was added.
+
+### 2026-08-11 — TUI parity pass and backend wrapper
+
+- What changed: Reworked the browser UI into a dense Todozi shell matching Ash's screenshot:
+  mode tabs for Projects, Tasks, Done, Find, More, API, and Feed; a filter strip; mode-aware
+  panels; and task step viewing/editing in the selected-task panel.
+- What changed: Added `deploy/run-satellite-todozi.sh` plus
+  `deploy/todozi-satellite.service`, and pointed
+  `/home/ash/.config/systemd/user/todozi.service` at it so the systemd backend waits when
+  the `tdz` TUI already owns `100.115.124.101:8636` instead of crash-looping.
+- Current status: `todozi.service` is active/enabled as the waiting backend wrapper,
+  `todozi-manage.service` is active/enabled at `http://100.115.124.101:3044`, and
+  `todoziview.service` remains inactive/disabled. Verified `node --check` for server/app
+  JavaScript, manage `/api/health`, step retrieval for `task_fa2d73cd`, and desktop/mobile
+  headless screenshots.
+- Remaining blockers or next steps: Todozi backend `/errors` and `/backups` still return
+  errors through the proxy. Satellite user systemd is logging inotify watcher exhaustion
+  separately from Todozi.
+
+### 2026-08-10 — Platform surface restored on satellite
+
+- What changed: Re-enabled `todozi-manage.service` and expanded the browser UI beyond the
+  earlier tasks/queue/search slice. The UI now fetches broader Todozi platform resources:
+  agents, available agents, memories, memory types, ideas, errors, training data,
+  training stats, chunks, ready chunks, chunk graph, task analytics, agent analytics,
+  performance, time report, and backups where the backend endpoint responds.
+- What changed: Added quick capture forms for ideas, memories, errors, queue plans, and
+  training pairs, plus task time start/stop controls in the selected-task panel.
+- Current status: `todozi-manage.service` is active/enabled at
+  `http://100.115.124.101:3044`; `todoziview.service` was disabled because it only
+  mirrored a thin status slice. Verified manage proxy counts: 11 derived projects, 20
+  tasks, 23 agents, 1 memory, and 1 idea.
+- Remaining blockers or next steps: Todozi backend `/errors` and `/backups` currently
+  return errors through the proxy. The terminal/TUI path still needs to be rebuilt as a
+  backend-backed Todozi command palette rather than a direct JSON-store clone.
+
+### 2026-08-10 — Satellite manage fallback enabled
+
+- What changed: Added `deploy/run-satellite-manage.sh` and
+  `deploy/todozi-manage-satellite.service`, then installed the service as
+  `/home/ash/.config/systemd/user/todozi-manage.service`.
+- Current status: `todozi-manage.service` is active and enabled on satellite at
+  `http://100.115.124.101:3044`, pointing at the satellite Todozi backend at
+  `http://100.115.124.101:8636`. `/api/health` passed and `/api/bootstrap` returned 1
+  project, 20 tasks, and 0 queue items.
+- Remaining blockers or next steps: The manage UI is only protected by private tailnet
+  reachability right now. Add browser-level auth before exposing it through a public
+  domain or non-tailnet route.
+
+### 2026-08-10 — Satellite manage fallback disabled
+
+- What changed: Disabled and stopped `todozi-manage.service` after live comparison showed
+  it was not the `tdz` TUI Ash remembered and its `/api/projects` view returned only
+  `general`.
+- Current status: The service template and launcher remain in `deploy/` as reference
+  artifacts, but the running browser front door is inactive/disabled.
+- Remaining blockers or next steps: Do not revive this UI as the Todozi entry point
+  unless it is rebuilt around the same store the chosen canonical Todozi surface uses.
 
 ### 2026-05-13 — AO bootstrap failure traced
 
@@ -31,6 +258,25 @@ Browser front door for Todozi on nova.
 
 - What changed: Created a self-contained Node browser app for Todozi with server-side
   proxying, a project list, task list, search, quick create, and a task detail editor.
-- Current status: The local app now has the right shape for `manage.err404memory.com`.
-- Remaining blockers or next steps: Sync the app to nova, add the hostname to the
-  `err404memory-hosts` ingress stack, and start the user service on nova.
+- Current status: The local app now has the right shape for `manage.err404memory.com`
+  and the live hostname is serving it.
+- Remaining blockers or next steps: None for the browser front door itself. Keep
+  iterating on capture/search/task-edit behavior as needed.
+
+### 2026-05-13 — Browser front door made live
+
+- What changed: Wired the manage app into the real Zane route on nova and fixed the
+  deployment-service proxy config so `manage.err404memory.com` now serves the Todozi
+  UI instead of the fallback page.
+- Current status: `https://manage.err404memory.com` is live and points at the shared
+  Todozi backend on nova.
+- Remaining blockers or next steps: None for the ingress path. Future work is feature
+  work inside the manage app.
+
+### 2026-05-13 — Temporary proxy helpers removed
+
+- What changed: Removed the extra debugging proxy services that were created while
+  tracing the ingress mismatch.
+- Current status: Only the live Zane-managed deployment service remains, and the public
+  hostname still returns the manage app.
+- Remaining blockers or next steps: None.

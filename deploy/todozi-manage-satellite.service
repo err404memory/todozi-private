@@ -1,0 +1,14 @@
+[Unit]
+Description=Todozi manage browser front door on satellite
+After=network-online.target todozi.service
+Wants=network-online.target todozi.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ash/storage/service-wing/engine-room/todozi-manage
+ExecStart=/usr/bin/env bash /home/ash/storage/service-wing/engine-room/todozi-manage/deploy/run-satellite-manage.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

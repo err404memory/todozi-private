@@ -9,19 +9,52 @@
   </head>
   <body>
     <div class="page">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">manage.err404memory.com</p>
-          <h1>Todozi manage</h1>
-          <p class="lede">
-            Browser front door for the shared Todozi backend on nova. Projects, tasks,
-            queue, search, and quick edits stay in one place.
-          </p>
+      <header class="shell-header">
+        <div class="title-row">
+          <div>
+            <p class="eyebrow">Todozi [v]</p>
+            <h1>Todozi manage</h1>
+          </div>
+          <div class="hero-actions">
+            <button id="refresh-btn" class="secondary">Refresh</button>
+            <a class="ghost" href="/api/health" target="_blank" rel="noreferrer">Health</a>
+          </div>
         </div>
-        <div class="hero-actions">
-          <button id="refresh-btn" class="secondary">Refresh</button>
-          <a class="ghost" href="/api/health" target="_blank" rel="noreferrer">Health</a>
-        </div>
+        <nav class="modebar" aria-label="Todozi sections">
+          <button type="button" class="mode-tab active" data-mode="projects">📁 Projects</button>
+          <button type="button" class="mode-tab" data-mode="tasks">📋 Tasks</button>
+          <button type="button" class="mode-tab" data-mode="done">✅ Done</button>
+          <button type="button" class="mode-tab" data-mode="find">🔍 Find</button>
+          <button type="button" class="mode-tab" data-mode="more">🔮 More</button>
+          <button type="button" class="mode-tab" data-mode="api">🔑 API</button>
+          <button type="button" class="mode-tab" data-mode="feed">📰 Feed</button>
+        </nav>
+        <form id="filter-form" class="filterbar">
+          <span>🔍 Filters</span>
+          <label>
+            Status
+            <select id="status-filter" name="status">
+              <option value="all">All</option>
+              <option value="todo">Todo</option>
+              <option value="in_progress">In progress</option>
+              <option value="done">Done</option>
+            </select>
+          </label>
+          <label>
+            Priority
+            <select id="priority-filter" name="priority">
+              <option value="all">All</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+          <label>
+            Project
+            <select id="project-filter" name="project"></select>
+          </label>
+        </form>
       </header>
 
       <main class="layout">
@@ -32,7 +65,7 @@
           </div>
           <div id="project-list" class="stack"></div>
 
-          <section class="subpanel">
+          <section class="subpanel mode-panel" data-panel="projects">
             <div class="panel-header">
               <h3>Create project</h3>
             </div>
@@ -53,7 +86,7 @@
         <section class="panel main">
           <div class="stats" id="stats"></div>
 
-          <section class="subpanel">
+          <section class="subpanel mode-panel" data-panel="find">
             <div class="panel-header">
               <h2>Search and capture</h2>
             </div>
@@ -64,7 +97,7 @@
             </form>
           </section>
 
-          <section class="subpanel">
+          <section class="subpanel mode-panel" data-panel="tasks projects">
             <div class="panel-header">
               <h2>Quick task</h2>
             </div>
@@ -96,7 +129,162 @@
             </form>
           </section>
 
-          <section class="subpanel">
+          <section class="subpanel mode-panel" data-panel="more feed">
+            <div class="panel-header">
+              <h2>Platform capture</h2>
+            </div>
+            <div class="capture-grid">
+              <form id="idea-form" class="form stack-tight">
+                <h3>Idea</h3>
+                <label>
+                  Idea
+                  <textarea name="idea" rows="3" required placeholder="Park the thing before it disappears"></textarea>
+                </label>
+                <div class="row">
+                  <label>
+                    Importance
+                    <select name="importance">
+                      <option value="low">low</option>
+                      <option value="medium" selected>medium</option>
+                      <option value="high">high</option>
+                    </select>
+                  </label>
+                  <label>
+                    Share
+                    <select name="share">
+                      <option value="private" selected>private</option>
+                      <option value="team">team</option>
+                      <option value="public">public</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Tags
+                  <input name="tags" placeholder="repo, phone, later" />
+                </label>
+                <button type="submit">Save idea</button>
+              </form>
+
+              <form id="memory-form" class="form stack-tight">
+                <h3>Memory</h3>
+                <label>
+                  Moment
+                  <textarea name="moment" rows="2" required></textarea>
+                </label>
+                <label>
+                  Meaning
+                  <textarea name="meaning" rows="2" required></textarea>
+                </label>
+                <label>
+                  Reason
+                  <input name="reason" required placeholder="why this matters later" />
+                </label>
+                <div class="row">
+                  <label>
+                    Type
+                    <select name="memory_type">
+                      <option value="standard" selected>standard</option>
+                      <option value="human">human</option>
+                      <option value="secret">secret</option>
+                      <option value="emotional">emotional</option>
+                    </select>
+                  </label>
+                  <label>
+                    Term
+                    <select name="term">
+                      <option value="short" selected>short</option>
+                      <option value="long">long</option>
+                    </select>
+                  </label>
+                </div>
+                <button type="submit">Save memory</button>
+              </form>
+
+              <form id="error-form" class="form stack-tight">
+                <h3>Error</h3>
+                <label>
+                  Title
+                  <input name="title" required />
+                </label>
+                <label>
+                  Description
+                  <textarea name="description" rows="3" required></textarea>
+                </label>
+                <div class="row">
+                  <label>
+                    Source
+                    <input name="source" required placeholder="repo, service, command" />
+                  </label>
+                  <label>
+                    Severity
+                    <select name="severity">
+                      <option value="low">low</option>
+                      <option value="medium" selected>medium</option>
+                      <option value="high">high</option>
+                      <option value="critical">critical</option>
+                    </select>
+                  </label>
+                </div>
+                <button type="submit">Log error</button>
+              </form>
+
+              <form id="queue-form" class="form stack-tight">
+                <h3>Queue plan</h3>
+                <label>
+                  Task name
+                  <input name="task_name" required />
+                </label>
+                <label>
+                  Description
+                  <textarea name="task_description" rows="3" required></textarea>
+                </label>
+                <div class="row">
+                  <label>
+                    Priority
+                    <select name="priority">
+                      <option value="low">low</option>
+                      <option value="medium" selected>medium</option>
+                      <option value="high">high</option>
+                    </select>
+                  </label>
+                  <label>
+                    Project ID
+                    <input name="project_id" placeholder="optional" />
+                  </label>
+                </div>
+                <button type="submit">Plan queue item</button>
+              </form>
+
+              <form id="training-form" class="form stack-tight">
+                <h3>Training data</h3>
+                <label>
+                  Prompt
+                  <textarea name="prompt" rows="3" required></textarea>
+                </label>
+                <label>
+                  Completion
+                  <textarea name="completion" rows="3" required></textarea>
+                </label>
+                <div class="row">
+                  <label>
+                    Type
+                    <select name="data_type">
+                      <option value="instruction" selected>instruction</option>
+                      <option value="conversation">conversation</option>
+                      <option value="correction">correction</option>
+                    </select>
+                  </label>
+                  <label>
+                    Source
+                    <input name="source" value="manual" />
+                  </label>
+                </div>
+                <button type="submit">Save training pair</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="subpanel mode-panel" data-panel="tasks done find projects">
             <div class="panel-header">
               <h2>Tasks</h2>
               <span id="task-count" class="badge">0</span>
@@ -107,12 +295,18 @@
             </div>
             <div id="task-list" class="task-list"></div>
           </section>
+
+          <section class="subpanel mode-panel" data-panel="more api feed">
+            <div class="panel-header">
+              <h2>Platform resources</h2>
+              <span id="platform-count" class="badge">0</span>
+            </div>
+            <div id="platform-tabs" class="resource-tabs"></div>
+            <div id="platform-list" class="resource-list"></div>
+          </section>
         </section>
 
         <aside class="panel detail">
-          <div class="panel-header">
-            <h2>Selected task</h2>
-          </div>
           <div id="task-detail" class="detail-empty">
             Pick a task to inspect or edit it.
           </div>
