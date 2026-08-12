@@ -1423,14 +1423,6 @@ function renderDeleteConfirm(task) {
   `;
 }
 
-function sameIdSet(a, b) {
-  const setA = new Set(a);
-  const setB = new Set(b);
-  if (setA.size !== setB.size) return false;
-  for (const id of setA) if (!setB.has(id)) return false;
-  return true;
-}
-
 async function performDelete(task, mode) {
   const impact = computeDeleteImpact(task);
   const dependentUpdates = impact.dependents.map((dep) => {
@@ -1513,19 +1505,14 @@ async function undoDelete(tombId) {
       snapshot.restore.dependents.map((dependent) => {
         const current = findTask(dependent.id);
         const currentDeps = [...(current?.dependencies || [])];
-        const editedSinceDelete = !sameIdSet(currentDeps, dependent.resultDependencies || []);
-        let nextDeps;
-        if (!editedSinceDelete && dependent.restoredId && !dependent.hadPreexistingRestoredId) {
-          const idx = currentDeps.indexOf(dependent.restoredId);
-          nextDeps = [...currentDeps];
-          if (idx !== -1) {
-            nextDeps[idx] = dependent.removedId;
-          } else if (!nextDeps.includes(dependent.removedId)) {
-            nextDeps.push(dependent.removedId);
-          }
-        } else {
-          nextDeps = currentDeps.includes(dependent.removedId) ? currentDeps : [...currentDeps, dependent.removedId];
-        }
+        // Drop the id the delete introduced (unless it was already there independently of
+        // the delete), then add the removed task's id back — this is safe whether or not
+        // the dependent was edited elsewhere in the meantime, since it only ever touches
+        // the one id the delete itself changed.
+        const nextDeps = currentDeps.filter(
+          (id) => !(dependent.restoredId && id === dependent.restoredId && !dependent.hadPreexistingRestoredId),
+        );
+        if (!nextDeps.includes(dependent.removedId)) nextDeps.push(dependent.removedId);
         return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
           body: JSON.stringify({ dependencies: nextDeps }),
@@ -2642,34 +2629,52 @@ async function bulkLoadRefs(force = false) {
   );
 }
 
+let refreshGeneration = 0;
+
 async function refreshAll() {
+  const myGeneration = ++refreshGeneration;
   clearMessage();
   elements.refreshBtn.disabled = true;
   elements.refreshBtn.textContent = "Refreshing...";
   try {
     const [bootstrap, platform] = await Promise.all([api("/api/bootstrap"), api("/api/platform")]);
+    if (myGeneration !== refreshGeneration) return;
     state.bootstrap = bootstrap;
     state.platform = platform;
     invalidateRelationshipCache();
     state.taskSteps = {};
     state.taskRefs = {};
     state.taskGit = {};
+    const stillDeleted = (taskId) => {
+      const rawTask = (state.bootstrap?.tasks || []).find((task) => task.id === taskId);
+      return !rawTask || taskIsDeleted(rawTask);
+    };
+    const keptTombstones = viewState.tombstones.filter((tomb) => stillDeleted(tomb.taskId));
+    if (keptTombstones.length !== viewState.tombstones.length) {
+      viewState.tombstones = keptTombstones;
+      saveViewState();
+    }
     const selected = state.selectedTaskId ? findTask(state.selectedTaskId) : null;
     const inScope = selected && !taskIsDeleted(selected) && scopedTasks().some((task) => task.id === state.selectedTaskId);
     if (!inScope) {
       state.selectedTaskId = scopedTasks()[0]?.id || null;
     }
     await Promise.all([bulkLoadSteps(true), bulkLoadRefs(true)]);
+    if (myGeneration !== refreshGeneration) return;
     const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
     await runWithConcurrency(expandedIds, 3, (id) => ensureRowData(id));
+    if (myGeneration !== refreshGeneration) return;
     renderAll();
     renderSyncIndicator(true);
   } catch (error) {
+    if (myGeneration !== refreshGeneration) return;
     setMessage(`Refresh failed: ${error.message}`, "error");
     renderSyncIndicator(false);
   } finally {
-    elements.refreshBtn.disabled = false;
-    elements.refreshBtn.textContent = "Refresh";
+    if (myGeneration === refreshGeneration) {
+      elements.refreshBtn.disabled = false;
+      elements.refreshBtn.textContent = "Refresh";
+    }
   }
 }
 
