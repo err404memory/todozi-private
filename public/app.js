@@ -1610,6 +1610,7 @@ function renderAxisBar() {
     button.addEventListener("click", () => {
       const key = button.dataset.hideRule;
       viewState.hideRules[key] = !viewState.hideRules[key];
+      viewState.revealedResidues = {};
       saveViewState();
       renderAxisBar();
       renderTaskStream();
@@ -2543,6 +2544,7 @@ function cycleHideRule() {
   const rule = HIDE_RULES[hideRuleCursor % HIDE_RULES.length];
   hideRuleCursor += 1;
   viewState.hideRules[rule.key] = !viewState.hideRules[rule.key];
+  viewState.revealedResidues = {};
   saveViewState();
   renderAxisBar();
   renderTaskStream();
@@ -2597,32 +2599,38 @@ function handleGlobalKeydown(event) {
 
 /* ---------- boot ---------- */
 
-async function bulkLoadSteps(force = false) {
+async function bulkLoadSteps(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
   await Promise.all(
     tasks.map(async (task) => {
       if (!force && state.taskSteps[task.id]?.data) return;
+      if (generation !== refreshGeneration) return;
       state.taskSteps[task.id] = { loading: true };
       try {
         const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
+        if (generation !== refreshGeneration) return;
         state.taskSteps[task.id] = { data };
       } catch (error) {
+        if (generation !== refreshGeneration) return;
         state.taskSteps[task.id] = { error: error.message };
       }
     }),
   );
 }
 
-async function bulkLoadRefs(force = false) {
+async function bulkLoadRefs(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
   await Promise.all(
     tasks.map(async (task) => {
       if (!force && state.taskRefs[task.id]?.data) return;
+      if (generation !== refreshGeneration) return;
       state.taskRefs[task.id] = { loading: true };
       try {
         const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
+        if (generation !== refreshGeneration) return;
         state.taskRefs[task.id] = { data };
       } catch (error) {
+        if (generation !== refreshGeneration) return;
         state.taskRefs[task.id] = { error: error.message };
       }
     }),
@@ -2659,7 +2667,7 @@ async function refreshAll() {
     if (!inScope) {
       state.selectedTaskId = scopedTasks()[0]?.id || null;
     }
-    await Promise.all([bulkLoadSteps(true), bulkLoadRefs(true)]);
+    await Promise.all([bulkLoadSteps(true, myGeneration), bulkLoadRefs(true, myGeneration)]);
     if (myGeneration !== refreshGeneration) return;
     const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
     await runWithConcurrency(expandedIds, 3, (id) => ensureRowData(id));
