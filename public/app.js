@@ -13,7 +13,8 @@ const AXES = [
 
 const HIDE_RULES = [
   { key: "done", label: "done" },
-  { key: "blocked", label: "blocked" },
+  { key: "later", label: "later" },
+  { key: "low", label: "low priority" },
 ];
 
 const URGENCY_ORDER = ["Now", "Next", "Later", "Done"];
@@ -54,6 +55,7 @@ const state = {
   searchQuery: "",
   searchResults: null,
   drag: null,
+  savingView: false,
 };
 
 let viewState = loadViewState();
@@ -71,12 +73,13 @@ function defaultViewState() {
   return {
     axis: "project",
     foldedGroups: {},
-    hideRules: { done: true, blocked: false },
+    hideRules: { done: true, later: false, low: false },
     revealedResidues: {},
     expandedRows: {},
     groupOrder: {},
     savedViews: [],
     tombstones: [],
+    showEffort: true,
   };
 }
 
@@ -402,12 +405,14 @@ function fieldsForTask(task) {
   };
 }
 
-function deriveEffort(taskId) {
-  const stepState = state.taskSteps[taskId];
+function deriveEffort(task) {
+  if (taskIsDone(task)) return "done";
+  const stepState = state.taskSteps[task.id];
   if (!stepState || stepState.loading || !stepState.data) return "?";
   const steps = normalizeSteps(stepState.data.steps);
-  if (steps.length <= 2) return "quick";
-  if (steps.length <= 5) return "hrs";
+  if (steps.length <= 1) return "?";
+  if (steps.length === 2) return "quick";
+  if (steps.length === 3) return "hrs";
   return "day+";
 }
 
@@ -475,11 +480,17 @@ function groupLabel(axis, key) {
 
 function taskMatchesHideRule(task, ruleKey) {
   if (ruleKey === "done") return taskIsDone(task);
-  if (ruleKey === "blocked") return isBlocked(task);
+  if (ruleKey === "later") return urgencyBucket(task) === "Later";
+  if (ruleKey === "low") return String(formatPriority(task)).toLowerCase() === "low";
   return false;
 }
 
+function blocksCount(taskId) {
+  return dependentsOf(taskId).length;
+}
+
 function activeHideRuleKeysFor(task) {
+  if (blocksCount(task.id) > 0) return [];
   return HIDE_RULES.map((rule) => rule.key).filter(
     (key) => viewState.hideRules[key] && taskMatchesHideRule(task, key),
   );
@@ -761,6 +772,7 @@ function renderGitLine(gitState) {
   const parts = [];
   parts.push(data.branch ? `<span class="mono">${escapeHtml(data.branch)}</span>` : `<span class="muted">no branch</span>`);
   if (data.lastCommit) parts.push(`<span class="git-commit">${escapeHtml(data.lastCommit)}</span>`);
+  if (data.lastCommitAge) parts.push(`<span class="muted">${escapeHtml(data.lastCommitAge)}</span>`);
   const stat = [];
   if (data.ahead) stat.push(`${data.ahead} ahead`);
   if (data.behind) stat.push(`${data.behind} behind`);
@@ -773,7 +785,9 @@ function renderGitSummary(gitState) {
   if (gitState.error) return "unavailable";
   const data = gitState.data;
   if (!data || !data.configured) return "not configured";
-  return escapeHtml(data.branch || "no branch");
+  if (!data.branch) return "no branch";
+  const branch = escapeHtml(data.branch);
+  return data.lastCommitAge ? `${branch} ${MDOT} ${escapeHtml(data.lastCommitAge)}` : branch;
 }
 
 function renderOpenPeeks(refs) {
@@ -881,7 +895,7 @@ function renderRow(task, groupId, revealed) {
   const doneSteps = steps.filter((s) => s.done).length;
   const refState = state.taskRefs[task.id];
   const refCount = refState?.data?.refs?.length;
-  const effort = deriveEffort(task.id);
+  const effort = deriveEffort(task);
   const active = task.id === state.selectedTaskId;
   const rowKey = `${groupId}::${task.id}`;
   const focused = state.focusedRowKey === rowKey;
@@ -907,7 +921,7 @@ function renderRow(task, groupId, revealed) {
           <span class="row-refs">${refCount === undefined ? "" : refCount}</span>
           <span class="row-progress"><span style="width:${Number(task.progress) || 0}%;"></span></span>
           <span class="row-steps">${stepState?.data ? `${doneSteps}/${steps.length}` : "&hellip;"}</span>
-          <span class="row-effort effort-${effort === "?" ? "unknown" : effort.replace("+", "plus")}">${effort}</span>
+          <span class="row-effort effort-${effort === "?" ? "unknown" : effort.replace("+", "plus")}">${viewState.showEffort ? effort : ""}</span>
         </span>
       </div>
       ${
@@ -1510,7 +1524,17 @@ function renderViews() {
     )
     .join("");
 
-  elements.viewsList.innerHTML = `${builtIn}${saved}<button type="button" class="rail-row rail-add">+ save this view</button>`;
+  const addRow = state.savingView
+    ? `
+      <form class="rail-row rail-add-form" data-save-view-form>
+        <input type="text" name="label" class="rail-add-input" placeholder="Name this view" autofocus maxlength="60" />
+        <button type="submit" class="rail-add-confirm" title="Save view">&#10003;</button>
+        <button type="button" class="rail-add-cancel" data-save-view-cancel title="Cancel">&#10005;</button>
+      </form>
+    `
+    : `<button type="button" class="rail-row rail-add" data-save-view-start>+ save this view</button>`;
+
+  elements.viewsList.innerHTML = `${builtIn}${saved}${addRow}`;
 
   elements.viewsList.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1535,8 +1559,21 @@ function renderViews() {
     });
   });
 
-  elements.viewsList.querySelector(".rail-add")?.addEventListener("click", () => {
-    const label = window.prompt("Name this view");
+  elements.viewsList.querySelector("[data-save-view-start]")?.addEventListener("click", () => {
+    state.savingView = true;
+    renderViews();
+    elements.viewsList.querySelector(".rail-add-input")?.focus();
+  });
+
+  elements.viewsList.querySelector("[data-save-view-cancel]")?.addEventListener("click", () => {
+    state.savingView = false;
+    renderViews();
+  });
+
+  const saveViewForm = elements.viewsList.querySelector("[data-save-view-form]");
+  saveViewForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const label = new FormData(saveViewForm).get("label")?.toString().trim();
     if (!label) return;
     viewState.savedViews.push({
       id: `view_${Date.now().toString(36)}`,
@@ -1545,7 +1582,14 @@ function renderViews() {
       hideRules: { ...viewState.hideRules },
     });
     saveViewState();
+    state.savingView = false;
     renderViews();
+  });
+  saveViewForm?.querySelector(".rail-add-input")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      state.savingView = false;
+      renderViews();
+    }
   });
 }
 
@@ -1692,15 +1736,15 @@ function togglePanel(key) {
 /* ---------- detail pane ---------- */
 
 function renderTaskDetail() {
-  const task = findTask(state.selectedTaskId);
-  if (!task || taskIsDeleted(task)) {
-    elements.taskDetail.innerHTML = `<div class="detail-empty">Pick a task to inspect or edit it.</div>`;
-    return;
-  }
-
   const message = state.message
     ? `<div class="${state.message.kind === "error" ? "error" : "help"}">${escapeHtml(state.message.text)}</div>`
     : "";
+
+  const task = findTask(state.selectedTaskId);
+  if (!task || taskIsDeleted(task)) {
+    elements.taskDetail.innerHTML = `${message}<div class="detail-empty">Pick a task to inspect or edit it.</div>`;
+    return;
+  }
 
   const projects = state.bootstrap?.projects || [];
   const projectOptions = [
@@ -1714,7 +1758,7 @@ function renderTaskDetail() {
   const statusValue = formatStatus(task);
   const done = taskIsDone(task);
   const gitState = state.taskGit[task.id];
-  const effort = deriveEffort(task.id);
+  const effort = deriveEffort(task);
   const backlinks = backlinksFor(task.id);
 
   elements.taskDetail.innerHTML = `
@@ -2257,6 +2301,7 @@ async function handleOmniSubmit(event) {
   const taskMatch = raw.match(/^\/task\s+(.+)$/i);
   const ideaMatch = raw.match(/^\/idea\s+(.+)$/i);
   const errMatch = raw.match(/^\/err\s+(.+)$/i);
+  const queueMatch = raw.match(/^\/queue\s+(.+)$/i);
 
   try {
     if (taskMatch) {
@@ -2293,6 +2338,19 @@ async function handleOmniSubmit(event) {
       elements.omniInput.value = "";
       await refreshAll();
       setMessage("Error logged.");
+      return;
+    }
+    if (queueMatch) {
+      const payload = {
+        task_name: queueMatch[1].slice(0, 80),
+        task_description: queueMatch[1],
+        priority: "medium",
+      };
+      if (state.selectedProjectScope !== "all") payload.project_id = state.selectedProjectScope;
+      await api("/api/queue/plan", { method: "POST", body: JSON.stringify(payload) });
+      elements.omniInput.value = "";
+      await refreshAll();
+      setMessage("Queue item planned.");
       return;
     }
 
@@ -2445,6 +2503,7 @@ function bindStatic() {
     hideChips: $("hide-chips"),
     foldAllBtn: $("fold-all-btn"),
     unfoldAllBtn: $("unfold-all-btn"),
+    effortToggleBtn: $("effort-toggle-btn"),
     axisStatus: $("axis-status"),
     viewsList: $("views-list"),
     projectList: $("project-list"),
@@ -2474,6 +2533,7 @@ function bindStatic() {
 }
 
 function wireEvents() {
+  elements.effortToggleBtn.classList.toggle("active", viewState.showEffort);
   elements.refreshBtn.addEventListener("click", refreshAll);
   elements.omniForm.addEventListener("submit", handleOmniSubmit);
   elements.omniInput.addEventListener("input", () => {
@@ -2491,6 +2551,12 @@ function wireEvents() {
   elements.unfoldAllBtn.addEventListener("click", () => {
     viewState.foldedGroups = {};
     saveViewState();
+    renderTaskStream();
+  });
+  elements.effortToggleBtn.addEventListener("click", () => {
+    viewState.showEffort = !viewState.showEffort;
+    saveViewState();
+    elements.effortToggleBtn.classList.toggle("active", viewState.showEffort);
     renderTaskStream();
   });
   elements.projectForm.addEventListener("submit", handleProjectSubmit);

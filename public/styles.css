@@ -1146,6 +1146,12 @@ a.ghost,
   cursor: pointer;
 }
 
+.chip-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .bar-divider {
   width: 1px;
   height: 1rem;
@@ -1434,6 +1440,40 @@ textarea {
   margin-top: 0.15rem;
 }
 
+.rail-add-form {
+  margin-top: 0.15rem;
+  border: 1px dashed var(--accent);
+  padding: 0.15rem;
+}
+
+.rail-add-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.75rem;
+  color: var(--text);
+  outline: none;
+}
+
+.rail-add-confirm,
+.rail-add-cancel {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0 0.15rem;
+}
+
+.rail-add-confirm:hover {
+  color: var(--accent);
+}
+
+.rail-add-cancel:hover {
+  color: #c9452b;
+}
+
 .rail-toggle-block {
   flex-direction: row;
   gap: 0.3rem;
@@ -1705,6 +1745,11 @@ textarea {
 
 .row-effort.effort-unknown {
   opacity: 0.55;
+}
+
+.row-effort.effort-done {
+  opacity: 0.4;
+  text-decoration: line-through;
 }
 
 .row-blocked-line {

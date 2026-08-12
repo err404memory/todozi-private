@@ -324,9 +324,10 @@ async function gitStatusFor(taskId, projectName) {
     return { configured: false };
   }
 
-  const [branch, lastCommit, aheadBehind, statusPorcelain] = await Promise.all([
+  const [branch, lastCommit, lastCommitAge, aheadBehind, statusPorcelain] = await Promise.all([
     runGit(repoPath, ["branch", "--show-current"]),
     runGit(repoPath, ["log", `--grep=${taskId}`, "--oneline", "-1"]),
+    runGit(repoPath, ["log", `--grep=${taskId}`, "--format=%cr", "-1"]),
     runGit(repoPath, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
     runGit(repoPath, ["status", "--porcelain"]),
   ]);
@@ -349,6 +350,7 @@ async function gitStatusFor(taskId, projectName) {
     repo: repoPath,
     branch: branch || null,
     lastCommit: lastCommit || null,
+    lastCommitAge: lastCommit ? lastCommitAge || null : null,
     ahead,
     behind,
     dirty: dirtyCount,
