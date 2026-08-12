@@ -699,13 +699,22 @@ function renderAutolinked(text) {
 }
 
 function jumpToTask(taskId) {
-  if (!findTask(taskId)) return;
+  const task = findTask(taskId);
+  if (!task) return;
+  state.searchResults = null;
+  if (elements.omniInput) elements.omniInput.value = "";
+  state.selectedProjectScope = "all";
+  state.selectedView = null;
+  for (const rawKey of groupKeysForFields(fieldsForTask(task), viewState.axis)) {
+    const groupId = `${viewState.axis}::${rawKey}`;
+    delete viewState.foldedGroups[groupId];
+    viewState.revealedResidues[groupId] = true;
+  }
   state.selectedTaskId = taskId;
   viewState.expandedRows[taskId] = true;
   saveViewState();
   ensureRowData(taskId);
-  renderTaskStream();
-  renderTaskDetail();
+  renderAll();
   requestAnimationFrame(() => {
     const el = elements.taskStream.querySelector(`.task-row[data-task="${CSS.escape(taskId)}"]`);
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1397,7 +1406,8 @@ async function performDelete(task, mode) {
       previousStatus: formatStatus(task),
       dependents: impact.dependents.map((dep) => ({
         id: dep.id,
-        previousDependencies: [...(dep.dependencies || [])],
+        removedId: task.id,
+        restoredId: mode === "unlink" ? null : impact.primaryOwnDependency || null,
       })),
     },
   };
@@ -1449,12 +1459,24 @@ async function undoDelete(tombId) {
       body: JSON.stringify({ status: snapshot.restore.previousStatus }),
     });
     await Promise.all(
-      snapshot.restore.dependents.map((dependent) =>
-        api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+      snapshot.restore.dependents.map((dependent) => {
+        const current = findTask(dependent.id);
+        let nextDeps = [...(current?.dependencies || [])];
+        if (dependent.restoredId) {
+          const idx = nextDeps.indexOf(dependent.restoredId);
+          if (idx !== -1) {
+            nextDeps[idx] = dependent.removedId;
+          } else if (!nextDeps.includes(dependent.removedId)) {
+            nextDeps.push(dependent.removedId);
+          }
+        } else if (!nextDeps.includes(dependent.removedId)) {
+          nextDeps.push(dependent.removedId);
+        }
+        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
-          body: JSON.stringify({ dependencies: dependent.previousDependencies }),
-        }),
-      ),
+          body: JSON.stringify({ dependencies: nextDeps }),
+        });
+      }),
     );
     viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== tombId);
     saveViewState();
@@ -2432,6 +2454,9 @@ async function handleOmniSubmit(event) {
     state.searchQuery = raw;
     const results = await api(`/api/search?q=${encodeURIComponent(raw)}`);
     state.searchResults = Array.isArray(results) ? results : [];
+    if (state.selectedTaskId && !state.searchResults.some((task) => task.id === state.selectedTaskId)) {
+      state.selectedTaskId = null;
+    }
     renderAll();
   } catch (error) {
     setMessage(`Capture/search failed: ${error.message}`, "error");
