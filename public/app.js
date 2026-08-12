@@ -393,7 +393,7 @@ function getDependentsIndex() {
   if (dependentsIndex) return dependentsIndex;
   dependentsIndex = new Map();
   for (const task of allTasks()) {
-    for (const depId of task.dependencies || []) {
+    for (const depId of new Set(task.dependencies || [])) {
       if (!dependentsIndex.has(depId)) dependentsIndex.set(depId, []);
       dependentsIndex.get(depId).push(task);
     }
@@ -435,7 +435,7 @@ function deriveEffort(task) {
 }
 
 function containsWholeId(haystack, id) {
-  const idChar = /[A-Za-z0-9_]/;
+  const idChar = /[A-Za-z0-9_.-]/;
   let from = 0;
   for (;;) {
     const index = haystack.indexOf(id, from);
@@ -2551,9 +2551,12 @@ async function refreshAll() {
   elements.refreshBtn.disabled = true;
   elements.refreshBtn.textContent = "Refreshing...";
   try {
-    state.bootstrap = await api("/api/bootstrap");
-    state.platform = await api("/api/platform");
+    const [bootstrap, platform] = await Promise.all([api("/api/bootstrap"), api("/api/platform")]);
+    state.bootstrap = bootstrap;
+    state.platform = platform;
     invalidateRelationshipCache();
+    state.taskSteps = {};
+    state.taskRefs = {};
     state.taskGit = {};
     if (!state.selectedTaskId || !findTask(state.selectedTaskId) || taskIsDeleted(findTask(state.selectedTaskId))) {
       state.selectedTaskId = allTasks()[0]?.id || null;
