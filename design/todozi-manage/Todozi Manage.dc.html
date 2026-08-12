@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #efece7; color: #221d18; font-family: "IBM Plex Sans", system-ui, sans-serif; }
+  a { color: #4b00a4; text-decoration: none; }
+  a:hover { color: #250069; text-decoration: underline; }
+  * { box-sizing: border-box; }
+</style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:40px 44px 20px;">
+  <div style="display:flex; flex-direction:column; gap:6px; max-width:80ch;">
+    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#7a6f63;">Turn 2 · view engine</span>
+    <h1 style="margin:0; font-size:26px; font-weight:600; letter-spacing:-0.02em;">Many views, nothing disappears</h1>
+    <p style="margin:0; font-size:14px; line-height:1.55; color:#5f564c; text-wrap:pretty;">1b with the grouping axis made first-class and hiding made honest. Change the axis and the same rows re-aggregate in place. Anything a hide rule removes leaves a dotted residue row exactly where it was, carrying its count and the first few titles — so folding is reversible and you never lose track of what you put away. Collapsed groups keep a one-line summary and a priority mix bar. All of it is keyboard-reachable, so it maps onto the TUI: same data, same vocabulary, same keys.</p>
+  </div>
+
+  <div id="2a" style="display:flex; flex-direction:column; gap:10px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; padding:3px 7px; border:1px solid #221d18; background:#221d18; color:#efece7;">2a</span>
+      <span style="font-size:14px; font-weight:600;">Axis switcher + residue rows</span>
+      <span style="font-size:12px; color:#7a6f63;">Try the axis chips and the hide chips — the rows re-aggregate, nothing vanishes silently</span>
+    </div>
+    <div style="width:1420px; height:1000px; overflow:hidden; border:1px solid #cfc8bd; background:#f2f0fa; color:#1c1330; display:flex; flex-direction:column;">
+      <div style="display:flex; align-items:center; gap:14px; height:40px; padding:0 12px; background:#1c1330; color:#efeaff; flex:0 0 auto;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; letter-spacing:.06em; color:#c9b6ff;">TODOZI/<span style="color:#fff36a;">manage</span></span>
+        <div style="flex:1; display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border:1px solid #4b3a78; background:#241a44;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#7d6bb0;">›</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#8f80bd;">search · <span style="color:#c9b6ff;">/task</span> <span style="color:#c9b6ff;">/idea</span> <span style="color:#c9b6ff;">/err</span> to capture · <span style="color:#c9b6ff;">g</span> to regroup</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8f80bd;">
+          <span>queue <strong style="color:#efeaff;">5</strong></span>
+          <span style="color:#ffb27d;">errors <strong>2</strong></span>
+          <span style="color:#7ee0a8;">tui in sync</span>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px; height:34px; padding:0 12px; background:#e6e1f7; border-bottom:1px solid #cdc4ea; flex:0 0 auto;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#6a5b96;">group by</span>
+        <sc-for list="{{ axes }}" as="a" hint-placeholder-count="5">
+          <button onClick="{{ a.pick }}" style="{{ a.style }}">{{ a.label }}</button>
+        </sc-for>
+        <span style="width:1px; height:16px; background:#cdc4ea; margin:0 4px;"></span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#6a5b96;">fold</span>
+        <sc-for list="{{ hideRules }}" as="r" hint-placeholder-count="3">
+          <button onClick="{{ r.toggle }}" style="{{ r.style }}">{{ r.label }}<span style="font-family:'IBM Plex Mono',monospace; opacity:.65;">{{ r.count }}</span></button>
+        </sc-for>
+        <span style="width:1px; height:16px; background:#cdc4ea; margin:0 4px;"></span>
+        <button onClick="{{ foldAll }}" style="height:21px; padding:0 8px; border:1px solid #c3b8e4; background:#fff; color:#4a3b71; font:inherit; font-size:11.5px; cursor:pointer;">fold all</button>
+        <button onClick="{{ unfoldAll }}" style="height:21px; padding:0 8px; border:1px solid #c3b8e4; background:#fff; color:#4a3b71; font:inherit; font-size:11.5px; cursor:pointer;">unfold all</button>
+        <span style="flex:1;"></span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6a5b96;">by {{ axisLabel }} · {{ hiddenNote }}</span>
+      </div>
+
+      <div style="flex:1; display:grid; grid-template-columns:186px minmax(0,1fr) 320px; min-height:0;">
+        <aside style="border-right:1px solid #cdc4ea; background:#ebe8f6; padding:10px 8px; display:flex; flex-direction:column; gap:14px; overflow:hidden;">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Views</span>
+            <button style="text-align:left; padding:5px 6px; border:0; border-left:2px solid #6b3ee0; background:#fff; color:#2c2049; font:inherit; font-size:13px; font-weight:600;">By project <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">33</span></button>
+            <button style="text-align:left; padding:5px 6px; border:0; border-left:2px solid transparent; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Today <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">6</span></button>
+            <button style="text-align:left; padding:5px 6px; border:0; border-left:2px solid transparent; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Blocked on me <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">3</span></button>
+            <button style="text-align:left; padding:5px 6px; border:0; border-left:2px solid transparent; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Untriaged <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">7</span></button>
+            <button style="text-align:left; padding:5px 6px; border:0; border-left:2px solid transparent; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Shipped <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">12</span></button>
+            <button style="text-align:left; margin-top:3px; padding:4px 6px; border:1px dashed #b3a6d6; background:transparent; color:#6a5b96; font:inherit; font-size:11.5px;">+ save this view</button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Projects</span>
+            <sc-for list="{{ projects }}" as="p" hint-placeholder-count="4">
+              <button onClick="{{ p.pick }}" style="{{ p.style }}">
+                <span style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+                  <span style="font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">{{ p.open }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="margin-top:auto; display:flex; flex-direction:column; gap:2px; border-top:1px solid #dcd6ef; padding-top:8px;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Platform</span>
+            <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:12px;">Queue<span style="font-family:'IBM Plex Mono',monospace; color:#8a7ab5;">5</span></button>
+            <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:12px;">Ideas<span style="font-family:'IBM Plex Mono',monospace; color:#8a7ab5;">18</span></button>
+            <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#b4531d; font:inherit; font-size:12px;">Errors<span style="font-family:'IBM Plex Mono',monospace;">2</span></button>
+          </div>
+        </aside>
+
+        <div style="min-width:0; overflow:hidden; background:#f7f5fd;">
+          <sc-for list="{{ vgroups }}" as="g" hint-placeholder-count="4">
+            <div>
+              <div onClick="{{ g.toggle }}" style="display:grid; grid-template-columns:14px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px; height:28px; background:#e0dbf2; border-top:1px solid #cdc4ea; border-bottom:1px solid #cdc4ea; cursor:pointer;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#7d6bb0;">{{ g.caret }}</span>
+                <span style="display:flex; align-items:baseline; gap:10px; min-width:0;">
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase; font-weight:600; color:#3b2b62;">{{ g.label }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#7d6bb0;">{{ g.count }}</span>
+                  <span style="font-size:11.5px; color:#7d6bb0;">{{ g.summary }}</span>
+                </span>
+                <span style="display:flex; align-items:center; gap:9px;">
+                  <button onClick="{{ g.rowsAll }}" style="height:19px; padding:0 7px; border:1px solid #c9c0e6; background:#f4f1fb; color:#6a5b96; font:inherit; font-size:10.5px; cursor:pointer;">{{ g.rowsLabel }}</button>
+                  <span style="display:flex; width:74px; height:4px; background:#d8d1ee; overflow:hidden;">
+                    <sc-for list="{{ g.mix }}" as="m" hint-placeholder-count="4">
+                      <span style="{{ m.style }}"></span>
+                    </sc-for>
+                  </span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#7d6bb0; width:34px; text-align:right;">{{ g.pct }}</span>
+                </span>
+              </div>
+              <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="4">
+                <div style="{{ t.rowStyle }}">
+                  <div draggable="{{ true }}" onDragStart="{{ t.dragStart }}" onDragOver="{{ t.dragOver }}" onDragLeave="{{ t.dragLeave }}" onDrop="{{ t.drop }}" onDragEnd="{{ t.dragEnd }}" onClick="{{ t.pick }}" style="{{ t.headStyle }}">
+                    <button onClick="{{ t.toggle }}" style="width:14px; height:18px; padding:0; border:0; background:transparent; color:#8a7ab5; font:inherit; font-size:10px; line-height:1; cursor:pointer;">{{ t.caret }}</button>
+                    <span style="display:inline-grid; place-items:center; width:14px; height:14px; border:1.5px solid #a396c9; border-radius:2px; background:#fff;"></span>
+                    <span style="display:flex; align-items:baseline; gap:8px; min-width:0;">
+                      <span style="font-size:13.5px; font-weight:500; letter-spacing:-0.005em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.title }}</span>
+                      <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#9287b8; white-space:nowrap;">{{ t.meta }}</span>
+                      <sc-if value="{{ t.showBlocks }}" hint-placeholder-val="{{ false }}">
+                        <span style="padding:0 5px; border:1px solid #d6cdef; background:#fff; font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6a5b96; white-space:nowrap;">{{ t.blocksLabel }}</span>
+                      </sc-if>
+                    </span>
+                    <span style="display:flex; align-items:center; gap:10px; white-space:nowrap;">
+                      <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#b6abd6;">{{ t.refCount }}</span>
+                      <span style="display:block; width:34px; height:3px; background:#ddd7f0;"><span style="display:block; height:3px; background:#6b3ee0; width:{{ t.pct }};"></span></span>
+                      <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#9287b8;">{{ t.steps }}</span>
+                      <span style="{{ t.effortStyle }}">{{ t.effort }}</span>
+                    </span>
+                  </div>
+
+                  <sc-if value="{{ t.blocked }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:grid; grid-template-columns:23px minmax(0,1fr) auto; align-items:center; gap:9px; padding:4px 12px 5px 9px; border-bottom:1px solid #eae5f7; background:#fdf3f1;">
+                      <span style="text-align:center; font-size:10px; color:#c9452b;">⛒</span>
+                      <span style="display:flex; align-items:baseline; gap:8px; min-width:0; font-size:12px; color:#8c3c2d;">
+                        blocked by <span style="font-family:'IBM Plex Mono',monospace; font-size:11px;">{{ t.blockedBy }}</span>
+                        <span style="color:#b07a6d; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.blockerTitle }}</span>
+                      </span>
+                      <button onClick="{{ t.unblock }}" style="padding:0 6px; border:1px solid #e5cdc7; background:#fff; color:#8c3c2d; font:inherit; font-size:10.5px; cursor:pointer;">unlink</button>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ t.open }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:2px 12px 10px 41px; background:rgba(255,255,255,.6); border-top:1px dashed #ded7f2;">
+                      <div style="display:grid; grid-template-columns:minmax(0,1fr) 240px; gap:16px;">
+                        <div style="display:flex; flex-direction:column; gap:5px; padding-top:7px;">
+                          <sc-for list="{{ t.stepList }}" as="s" hint-placeholder-count="3">
+                            <label style="display:grid; grid-template-columns:14px minmax(0,1fr); gap:8px; align-items:start; font-size:12.5px;">
+                              <span style="{{ s.box }}"></span>
+                              <span style="{{ s.text }}">{{ s.label }}</span>
+                            </label>
+                          </sc-for>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:6px; padding:7px 0 0 14px; border-left:1px solid #e2dcf3;">
+                          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">Note</span>
+                          <p style="margin:0; font-size:12px; line-height:1.5; color:#4a3b71; text-wrap:pretty;">
+                            <sc-for list="{{ t.noteParts }}" as="n" hint-placeholder-count="1">
+                              <span style="{{ n.style }}">{{ n.text }}</span>
+                            </sc-for>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:9px; padding-top:8px; border-top:1px solid #ece7f8;">
+                        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">refs</span>
+                        <sc-for list="{{ t.refs }}" as="r" hint-placeholder-count="2">
+                          <button onClick="{{ r.pick }}" style="{{ r.style }}"><span style="opacity:.55;">{{ r.kind }}</span>{{ r.label }}</button>
+                        </sc-for>
+                        <button style="padding:1px 6px; border:1px dashed #c3b8e4; background:transparent; color:#8a7ab5; font-family:'IBM Plex Mono',monospace; font-size:10.5px; cursor:pointer;">+ path</button>
+                      </div>
+
+                      <div style="display:flex; align-items:center; gap:9px; margin-top:6px;">
+                        <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">git</span>
+                        <span style="{{ t.gitStyle }}">{{ t.gitLine }}</span>
+                        <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#a89ac9;">{{ t.gitStat }}</span>
+                      </div>
+
+                      <sc-if value="{{ t.peekOn }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:8px; border:1px solid #ded7f2; background:#fbfaff;">
+                          <div style="display:flex; align-items:center; gap:8px; padding:3px 8px; border-bottom:1px solid #ece7f8; background:#f4f1fb;">
+                            <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#4a3b71;">{{ t.peekPath }}</span>
+                            <span style="flex:1;"></span>
+                            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#9287b8;">read-only peek · o opens in $EDITOR</span>
+                          </div>
+                          <sc-for list="{{ t.peekLines }}" as="l" hint-placeholder-count="4">
+                            <div style="display:grid; grid-template-columns:38px minmax(0,1fr); gap:10px; padding:1px 8px;">
+                              <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#c0b6dd; text-align:right;">{{ l.n }}</span>
+                              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#3b2b62; white-space:pre; overflow:hidden; text-overflow:ellipsis;">{{ l.text }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+              <sc-for list="{{ g.tombs }}" as="d" hint-placeholder-count="0">
+                <div style="display:grid; grid-template-columns:23px minmax(0,1fr) auto; align-items:center; gap:9px; padding:5px 12px 5px 9px; border-bottom:1px solid #eae5f7; background:#f1eff5;">
+                  <span style="text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10px; color:#a89ac9;">✕</span>
+                  <span style="display:flex; align-items:baseline; gap:8px; min-width:0; font-size:12px; color:#9b93ad;">
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px;">{{ d.id }}</span>
+                    <span style="text-decoration:line-through; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ d.title }}</span>
+                    <span style="color:#b3abc4;">deleted</span>
+                  </span>
+                  <button onClick="{{ d.restore }}" style="padding:0 7px; border:1px solid #d5cfe2; background:#fff; color:#6a5b96; font:inherit; font-size:10.5px; cursor:pointer;">undo</button>
+                </div>
+              </sc-for>
+              <sc-if value="{{ g.residue }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ g.residue.reveal }}" style="display:grid; grid-template-columns:23px minmax(0,1fr) auto; align-items:center; gap:9px; padding:5px 12px 5px 9px; border-bottom:1px solid #eae5f7; border-left:2px solid transparent; background:repeating-linear-gradient(135deg, rgba(232,227,246,.55) 0 6px, transparent 6px 12px); cursor:pointer;">
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#a89ac9; text-align:center;">⌄</span>
+                  <span style="display:flex; align-items:baseline; gap:8px; min-width:0;">
+                    <span style="font-size:12px; color:#7d6bb0;">{{ g.residue.n }} folded here — {{ g.residue.why }}</span>
+                    <span style="font-size:11.5px; color:#a89ac9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ g.residue.titles }}</span>
+                  </span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#7d6bb0;">show</span>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <aside style="border-left:1px solid #cdc4ea; background:#fff; display:flex; flex-direction:column; min-height:0;">
+          <div style="display:flex; align-items:center; gap:8px; height:28px; padding:0 10px; border-bottom:1px solid #e2dcf3; background:#f4f1fb;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6b3ee0; font-weight:600;">{{ sel2.id }}</span>
+            <span style="flex:1;"></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#9287b8;">⌘↵ save · esc close</span>
+          </div>
+          <div style="padding:12px 12px 0;">
+            <h2 style="margin:0 0 8px; font-size:16.5px; font-weight:600; line-height:1.28; letter-spacing:-0.015em; text-wrap:pretty;">{{ sel2.title }}</h2>
+            <div style="display:grid; grid-template-columns:64px minmax(0,1fr); gap:5px 10px; font-size:12.5px; padding-bottom:11px; border-bottom:1px solid #eee9f8;">
+              <span style="color:#9287b8;">status</span><span>{{ sel2.status }}</span>
+              <span style="color:#9287b8;">priority</span><span>{{ sel2.priority }}</span>
+              <span style="color:#9287b8;">project</span><span>{{ sel2.project }}</span>
+              <span style="color:#9287b8;">effort</span><span>{{ selEffort }} <span style="color:#9287b8;">· fuzzy, not a date</span></span>
+              <span style="color:#9287b8;">git</span><span style="font-family:'IBM Plex Mono',monospace; font-size:11.5px;">{{ selGit }}</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:5px; padding:9px 0; border-bottom:1px solid #eee9f8;">
+              <sc-for list="{{ selRefs }}" as="r" hint-placeholder-count="2">
+                <button onClick="{{ r.pick }}" style="{{ r.style }}">{{ r.label }}</button>
+              </sc-for>
+            </div>
+            <sc-if value="{{ hasBacklinks }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex; flex-direction:column; gap:5px; padding:9px 0; border-bottom:1px solid #eee9f8;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">Referenced by</span>
+                <sc-for list="{{ backlinks }}" as="b" hint-placeholder-count="2">
+                  <button onClick="{{ b.pick }}" style="display:grid; grid-template-columns:52px minmax(0,1fr); gap:8px; align-items:baseline; padding:1px 0; border:0; background:transparent; text-align:left; cursor:pointer;">
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#6b3ee0;">{{ b.id }}</span>
+                    <span style="min-width:0; font-size:12px; color:#4a3b71; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ b.title }} <span style="color:#a89ac9;">— {{ b.why }}</span></span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <div style="flex:1; overflow:hidden; padding:11px 12px; display:flex; flex-direction:column; gap:7px;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">Steps</span>
+            <sc-for list="{{ detailSteps2 }}" as="s" hint-placeholder-count="5">
+              <label style="display:grid; grid-template-columns:14px minmax(0,1fr); gap:9px; align-items:start; font-size:13px; line-height:1.4; color:#2c2049;">
+                <span style="{{ s.box }}"></span>
+                <span style="{{ s.text }}">{{ s.label }}</span>
+              </label>
+            </sc-for>
+            <input placeholder="add step…" style="margin-top:2px; height:26px; padding:0 8px; border:1px solid #e2dcf3; background:#faf9fe; font:inherit; font-size:12.5px; color:#2c2049;" />
+            <div style="margin-top:auto; padding-top:10px;">
+              <sc-if value="{{ confirmOn }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid #e5cdc7; background:#fdf3f1; padding:9px 10px;">
+                  <div style="font-size:12.5px; font-weight:600; color:#8c3c2d; margin-bottom:7px;">Delete {{ sel2.id }} — what goes with it</div>
+                  <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:9px;">
+                    <sc-for list="{{ impacts }}" as="i" hint-placeholder-count="4">
+                      <div style="display:grid; grid-template-columns:12px minmax(0,1fr); gap:7px; align-items:start; font-size:11.5px; line-height:1.4;">
+                        <span style="color:#c9a79e;">·</span>
+                        <span style="color:{{ i.tone }};">{{ i.text }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                    <button onClick="{{ deleteUnlink }}" style="height:25px; padding:0 10px; border:0; background:#8c3c2d; color:#fff; font:inherit; font-size:12px; cursor:pointer;">Delete and unlink</button>
+                    <sc-if value="{{ canTransfer }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ deleteTransfer }}" style="height:25px; padding:0 10px; border:1px solid #d9bdb6; background:#fff; color:#8c3c2d; font:inherit; font-size:12px; cursor:pointer;">{{ transferLabel }}</button>
+                    </sc-if>
+                    <button onClick="{{ cancelDelete }}" style="height:25px; padding:0 10px; border:0; background:transparent; color:#a08279; font:inherit; font-size:12px; cursor:pointer;">Cancel</button>
+                  </div>
+                </div>
+              </sc-if>
+              <div style="display:flex; gap:6px; margin-top:8px;">
+                <button style="height:26px; padding:0 11px; border:0; background:#6b3ee0; color:#fff; font:inherit; font-size:12.5px; font-weight:500;">Save</button>
+                <button style="height:26px; padding:0 11px; border:1px solid #ded7f2; background:#fff; color:#4a3b71; font:inherit; font-size:12.5px;">Complete</button>
+                <span style="flex:1;"></span>
+                <button onClick="{{ askDelete }}" style="height:26px; padding:0 9px; border:0; background:transparent; color:#a89ac9; font:inherit; font-size:12.5px; cursor:pointer;">Delete</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:16px; height:26px; padding:0 12px; border-top:1px solid #cdc4ea; background:#e6e1f7; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#6a5b96; flex:0 0 auto;">
+        <span><span style="color:#4a3b71; font-weight:600;">j/k</span> move</span>
+        <span><span style="color:#4a3b71; font-weight:600;">g</span> regroup</span>
+        <span><span style="color:#4a3b71; font-weight:600;">z</span> fold group · <span style="color:#4a3b71; font-weight:600;">Z</span> fold all</span>
+        <span><span style="color:#4a3b71; font-weight:600;">h</span> hide rule</span>
+        <span><span style="color:#4a3b71; font-weight:600;">enter</span> expand</span>
+        <span><span style="color:#4a3b71; font-weight:600;">drag onto a row</span> to block · <span style="color:#4a3b71; font-weight:600;">drag to its top edge</span> to reorder</span>
+        <span style="flex:1;"></span>
+        <span>{{ hiddenTotal }} rows folded · {{ foldedGroups }} · remembered between sessions</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:20px 44px 64px;">
+  <div style="display:flex; flex-direction:column; gap:6px; max-width:80ch;">
+    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#7a6f63;">Turn 1 · todozi-manage</span>
+    <h1 style="margin:0; font-size:26px; font-weight:600; letter-spacing:-0.02em;">Layout &amp; hierarchy pass</h1>
+    <p style="margin:0; font-size:14px; line-height:1.55; color:#5f564c; text-wrap:pretty;">Baseline recreation on the left, then two directions that fold modes, filters and projects into one query line so nothing toggles panels out from under you. Both keep triage, capture, deep-edit and monitoring on one screen.</p>
+  </div>
+
+  <div style="display:flex; gap:56px; align-items:flex-start; flex-wrap:wrap;">
+
+    <div id="1a" style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; padding:3px 7px; border:1px solid #221d18; background:#221d18; color:#efece7;">1a</span>
+        <span style="font-size:14px; font-weight:600;">Recreation — current UI</span>
+        <span style="font-size:12px; color:#7a6f63;">Projects mode, as it renders today</span>
+      </div>
+      <div style="width:1420px; height:1150px; overflow:hidden; border:1px solid #cfc8bd; background:#cbc9f5; font-family:ui-sans-serif, system-ui, sans-serif; color:#250069;">
+        <div style="width:100%; padding:0.12rem;">
+          <header style="border:2px solid #6f00ff; background:#d7d4ff; border-radius:3px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; padding:0.32rem 0.45rem; background:#20143e; color:#f6f2ff;">
+              <div>
+                <p style="margin:0; color:#fff; font-size:0.75rem; font-weight:700;">Todozi [v]</p>
+                <h1 style="margin:0; font-size:1rem; font-weight:700;">Todozi manage</h1>
+              </div>
+              <div style="display:flex; gap:0.7rem;">
+                <button style="border:1px solid rgba(36,27,20,.14); border-radius:3px; padding:0.28rem 0.42rem; background:transparent; color:#f6f2ff; font:inherit; font-size:.85rem;">Refresh</button>
+                <a href="#1a" style="border:1px solid rgba(36,27,20,.14); border-radius:3px; padding:0.28rem 0.42rem; color:#f6f2ff; font-size:.85rem;">Health</a>
+              </div>
+            </div>
+            <nav style="display:flex; gap:0.18rem; flex-wrap:wrap; padding:0.25rem; background:#7900ff; border-top:2px solid #5c00cc; border-bottom:2px solid #5c00cc;">
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#4e00a8; color:#fff36a; font:inherit; font-size:.85rem;">📁 Projects</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">📋 Tasks</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">✅ Done</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">🔍 Find</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">🔮 More</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">🔑 API</button>
+              <button style="padding:0.32rem 0.5rem; border:1px solid #efe7ff; border-radius:3px; background:#7900ff; color:#fff; font:inherit; font-size:.85rem;">📰 Feed</button>
+            </nav>
+            <form style="display:grid; grid-template-columns:auto repeat(3, minmax(120px,1fr)); gap:0.22rem; align-items:end; padding:0.24rem 0.34rem; background:#d7d4ff; color:#9f00ff;">
+              <span style="font-size:.85rem;">🔍 Filters</span>
+              <label style="display:grid; gap:0.15rem; color:#6a00d4; font-size:0.78rem;">Status
+                <select style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.8rem;"><option>All</option></select>
+              </label>
+              <label style="display:grid; gap:0.15rem; color:#6a00d4; font-size:0.78rem;">Priority
+                <select style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.8rem;"><option>All</option></select>
+              </label>
+              <label style="display:grid; gap:0.15rem; color:#6a00d4; font-size:0.78rem;">Project
+                <select style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.8rem;"><option>all</option></select>
+              </label>
+            </form>
+          </header>
+
+          <main style="display:grid; grid-template-columns:230px minmax(0,1fr) 320px; gap:0.22rem; margin-top:0.22rem; align-items:start;">
+            <aside style="min-width:0; border:2px solid #6f00ff; border-radius:3px; background:#d7d4ff; padding:0.28rem;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin:-0.28rem -0.28rem 0.24rem; padding:0.2rem 0.32rem; border-bottom:1px solid #6f00ff; background:#bdb7f5;">
+                <h2 style="margin:0; font-size:1rem;">Projects</h2>
+                <span style="border:1px solid #6f00ff; border-radius:3px; background:rgba(255,255,255,.65); color:#5b45a0; padding:0.13rem 0.28rem; font-size:0.72rem;">4</span>
+              </div>
+              <div style="display:grid; gap:0.25rem;">
+                <button style="display:grid; gap:0.2rem; text-align:left; padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-left:4px solid #6500d8; border-radius:3px; background:#eeeaff; color:#250069; font:inherit;">
+                  <span style="font-weight:700; font-size:0.92rem;">all</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">Unfiltered view</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">33 tasks</span>
+                </button>
+                <button style="display:grid; gap:0.2rem; text-align:left; padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff; color:#250069; font:inherit;">
+                  <span style="font-weight:700; font-size:0.92rem;">todozi-manage</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">Browser front door</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">14 tasks</span>
+                </button>
+                <button style="display:grid; gap:0.2rem; text-align:left; padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff; color:#250069; font:inherit;">
+                  <span style="font-weight:700; font-size:0.92rem;">nova-ops</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">No description</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">9 tasks</span>
+                </button>
+                <button style="display:grid; gap:0.2rem; text-align:left; padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff; color:#250069; font:inherit;">
+                  <span style="font-weight:700; font-size:0.92rem;">agent-orchestrator</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">Queue + training</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">6 tasks</span>
+                </button>
+                <button style="display:grid; gap:0.2rem; text-align:left; padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff; color:#250069; font:inherit;">
+                  <span style="font-weight:700; font-size:0.92rem;">general</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">No description</span>
+                  <span style="color:#5b45a0; font-size:0.78rem;">4 tasks</span>
+                </button>
+              </div>
+              <section style="border:2px solid #6f00ff; border-left-width:4px; border-radius:3px; background:#c9c4fb; padding:0.28rem; margin-top:0.24rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin:-0.28rem -0.28rem 0.24rem; padding:0.2rem 0.32rem; border-bottom:1px solid #6f00ff; background:#bdb7f5;">
+                  <h3 style="margin:0; font-size:0.95rem;">Create project</h3>
+                </div>
+                <form style="display:grid; gap:0.45rem;">
+                  <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Name
+                    <input placeholder="design-system" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;" />
+                  </label>
+                  <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Description
+                    <textarea rows="3" placeholder="Shared dashboard workstream" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem; resize:vertical;"></textarea>
+                  </label>
+                  <button style="border:1px solid transparent; border-radius:3px; padding:0.28rem 0.42rem; background:#6500d8; color:#fff; font:inherit; font-size:.85rem;">Add project</button>
+                </form>
+              </section>
+            </aside>
+
+            <section style="min-width:0; border:2px solid #6f00ff; border-radius:3px; background:#d7d4ff; padding:0.28rem;">
+              <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0.25rem;">
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Projects</span><span style="font-size:1.25rem; font-weight:750;">4</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Tasks</span><span style="font-size:1.25rem; font-weight:750;">33</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Active</span><span style="font-size:1.25rem; font-weight:750;">21</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Done</span><span style="font-size:1.25rem; font-weight:750;">12</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Queue</span><span style="font-size:1.25rem; font-weight:750;">5</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Agents</span><span style="font-size:1.25rem; font-weight:750;">3</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Memories</span><span style="font-size:1.25rem; font-weight:750;">41</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Ideas</span><span style="font-size:1.25rem; font-weight:750;">18</span></div>
+                <div style="padding:0.34rem 0.4rem; border:1px solid #6f00ff; border-radius:3px; background:#eeeaff;"><span style="display:block; margin-bottom:0.2rem; color:#5b45a0; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em;">Errors</span><span style="font-size:1.25rem; font-weight:750;">2</span></div>
+              </div>
+
+              <section style="border:2px solid #6f00ff; border-left-width:4px; border-radius:3px; background:#c9c4fb; padding:0.28rem; margin-top:0.24rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin:-0.28rem -0.28rem 0.24rem; padding:0.2rem 0.32rem; border-bottom:1px solid #6f00ff; background:#bdb7f5;">
+                  <h2 style="margin:0; font-size:1rem;">Quick task</h2>
+                </div>
+                <form style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.45rem;">
+                  <label style="grid-column:1/-1; display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Action
+                    <input placeholder="Finalize Telegram bot config" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;" />
+                  </label>
+                  <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Project
+                    <select style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;"><option>general</option></select>
+                  </label>
+                  <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Time
+                    <input placeholder="ASAP or 2026-05-13T12:00:00Z" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;" />
+                  </label>
+                  <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">Priority
+                    <select style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;"><option>medium</option></select>
+                  </label>
+                  <div style="grid-column:1/-1; display:flex; justify-content:flex-end;">
+                    <button style="border:1px solid transparent; border-radius:3px; padding:0.28rem 0.42rem; background:#6500d8; color:#fff; font:inherit; font-size:.85rem;">Create task</button>
+                  </div>
+                </form>
+              </section>
+
+              <section style="border:2px solid #6f00ff; border-left-width:4px; border-radius:3px; background:#c9c4fb; padding:0.28rem; margin-top:0.24rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin:-0.28rem -0.28rem 0.24rem; padding:0.2rem 0.32rem; border-bottom:1px solid #6f00ff; background:#bdb7f5;">
+                  <h2 style="margin:0; font-size:1rem;">Tasks</h2>
+                  <span style="border:1px solid #6f00ff; border-radius:3px; background:rgba(255,255,255,.65); color:#5b45a0; padding:0.13rem 0.28rem; font-size:0.72rem;">21</span>
+                </div>
+                <div style="display:flex; gap:0.22rem; flex-wrap:wrap; margin-bottom:0.28rem;">
+                  <span style="border:1px solid #6f00ff; border-radius:3px; background:rgba(255,255,255,.65); color:#5b45a0; padding:0.13rem 0.28rem; font-size:0.72rem;">All projects</span>
+                </div>
+                <div style="display:grid; gap:0.25rem;">
+                  <sc-for list="{{ legacyTasks }}" as="t" hint-placeholder-count="4">
+                    <article style="border:1px solid #6f00ff; border-left:3px solid #8f7cff; border-radius:3px; background:#eeeaff; padding:0.34rem 0.4rem;">
+                      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.34rem;">
+                        <span style="display:inline-grid; place-items:center; width:1.2rem; height:1.2rem; border:2px solid #6f00ff; border-radius:3px; background:#f7f4ff; flex:0 0 auto; margin-top:.1rem;"></span>
+                        <div style="min-width:0; flex:1;">
+                          <div style="font-weight:650; font-size:0.92rem; line-height:1.22; margin-bottom:0.18rem;">{{ t.title }}</div>
+                          <div style="color:#5b45a0; font-size:0.78rem;"><strong>{{ t.id }}</strong> · {{ t.project }} · {{ t.priority }} · {{ t.status }}</div>
+                        </div>
+                        <span style="border:1px solid #6f00ff; border-radius:3px; background:rgba(255,255,255,.65); color:#5b45a0; padding:0.13rem 0.28rem; font-size:0.72rem;">{{ t.time }}</span>
+                      </div>
+                      <div style="margin-top:0.26rem; padding:0.3rem 0.36rem; border-left:3px solid rgba(101,0,216,.55); background:rgba(247,244,255,.48); font-size:0.88rem; line-height:1.28;">{{ t.note }}</div>
+                      <div style="display:flex; gap:0.25rem; flex-wrap:wrap; margin-top:0.35rem;">
+                        <sc-for list="{{ t.tags }}" as="tag" hint-placeholder-count="2">
+                          <span style="display:inline-flex; align-items:center; border-radius:3px; padding:0.13rem 0.28rem; background:rgba(13,111,102,.08); color:#4b00a4; font-size:0.72rem;">{{ tag }}</span>
+                        </sc-for>
+                      </div>
+                      <div style="display:flex; margin-top:0.24rem;">
+                        <button style="display:inline-flex; align-items:center; gap:0.45rem; min-height:1.55rem; padding:0.2rem 0.34rem; border:1px solid transparent; border-radius:3px; background:#6500d8; color:#fff; font:inherit; font-size:0.82rem;">
+                          <span style="width:0.85rem; text-align:center; font-weight:800;">▸</span>
+                          <span>Sub-actions</span>
+                          <span style="display:inline-grid; place-items:center; min-width:1.25rem; height:1.25rem; padding:0 0.25rem; border-radius:999px; background:rgba(255,255,255,.25); font-size:0.72rem; font-weight:700;">{{ t.steps }}</span>
+                        </button>
+                      </div>
+                    </article>
+                  </sc-for>
+                </div>
+              </section>
+            </section>
+
+            <aside style="min-width:0; border:2px solid #6f00ff; border-radius:3px; background:#d7d4ff; padding:0.28rem;">
+              <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:0.45rem; padding:0.24rem 0.28rem; border-left:4px solid #6500d8; background:rgba(247,244,255,.54);">
+                <div style="font-size:1rem; font-weight:750; line-height:1.18;">Ship manage.err404memory.com behind nginx</div>
+                <span style="display:inline-grid; place-items:center; width:1.12rem; height:1.12rem; border:2px solid #6f00ff; border-radius:3px; background:#f7f4ff;"></span>
+              </div>
+              <div style="color:#5b45a0; font-size:0.78rem; padding-left:0.34rem; margin-top:0.15rem; margin-bottom:0.28rem;">TZ-4812</div>
+              <div style="display:flex; gap:0.18rem; flex-wrap:wrap; align-items:center; margin-bottom:0.24rem; padding:0.18rem 0; border-bottom:1px solid rgba(111,0,255,.28);">
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; border:1px solid transparent; border-radius:3px; color:#5b45a0; font-size:.85rem;">project <strong style="color:#250069;">todozi-manage</strong></span>
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; border:1px solid transparent; border-radius:3px; color:#5b45a0; font-size:.85rem;">priority <strong style="color:#250069;">urgent</strong></span>
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; border:1px solid transparent; border-radius:3px; color:#5b45a0; font-size:.85rem;">status <strong style="color:#250069;">in_progress</strong></span>
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; color:#5b45a0; font-size:.85rem;">tags <strong style="color:#250069;">deploy, nginx</strong></span>
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; color:#5b45a0; font-size:.85rem;">time <strong style="color:#250069;">ASAP</strong></span>
+                <span style="display:inline-flex; gap:0.24rem; align-items:center; min-height:1.35rem; padding:0.1rem 0.22rem; color:#5b45a0; font-size:.85rem;">progress <strong style="color:#250069;">60</strong></span>
+              </div>
+              <div style="display:grid; gap:0.3rem;">
+                <label style="display:grid; gap:0.35rem; margin-top:0.26rem; padding:0.3rem 0.36rem; border-left:3px solid rgba(101,0,216,.55); background:rgba(247,244,255,.48); color:#5b45a0; font-size:0.88rem;">Notes
+                  <textarea rows="4" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem; resize:vertical;">Cert issued. Waiting on satellite service restart before flipping DNS.</textarea>
+                </label>
+                <section style="display:grid; gap:0.35rem; margin-top:0.26rem; padding:0.3rem 0.36rem; border-left:3px solid rgba(101,0,216,.55); background:rgba(247,244,255,.48);">
+                  <div style="display:grid; gap:0.25rem;">
+                    <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0.42rem; padding:0.22rem 0; border-top:1px solid rgba(32,20,62,.1);">
+                      <label style="display:grid; grid-template-columns:1.1rem minmax(0,1fr); gap:0.35rem; align-items:start; font-size:.85rem;">
+                        <input type="checkbox" style="margin-top:.15rem;" />
+                        <span><strong style="display:block;">Rotate satellite service env on nova</strong><small style="display:block; color:#5b45a0; margin-top:.15rem;">TZ-4790 · blocked</small></span>
+                      </label>
+                      <button style="padding:0.2rem 0; border:0; background:transparent; color:#5b45a0; font:inherit; font-size:0.78rem;">Remove</button>
+                    </div>
+                  </div>
+                  <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0.3rem;">
+                    <input placeholder="Search task id" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem;" />
+                    <button style="border:1px solid #6f00ff; border-radius:3px; padding:0.28rem 0.42rem; background:transparent; color:#250069; font:inherit; font-size:.85rem;">Add</button>
+                  </div>
+                </section>
+                <div style="margin-top:0.26rem; padding:0.3rem 0.36rem; border:1px solid rgba(32,20,62,.14); border-left:3px solid rgba(101,0,216,.55); border-radius:3px; background:rgba(247,244,255,.48); color:#5b45a0; font-size:.85rem;">▸ Fields in use</div>
+                <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
+                  <button style="border:1px solid transparent; border-radius:3px; padding:0.28rem 0.42rem; background:#6500d8; color:#fff; font:inherit; font-size:.85rem;">Save task</button>
+                  <button style="border:1px solid transparent; border-radius:3px; padding:0.28rem 0.42rem; background:#8c3c2d; color:#fff; font:inherit; font-size:.85rem;">Delete</button>
+                </div>
+              </div>
+              <form style="display:grid; gap:0.3rem; margin-top:0.38rem; padding:0.34rem 0.38rem; border-top:2px solid #6f00ff; border-left:3px solid #6500d8; background:rgba(247,244,255,.48);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin:-0.34rem -0.38rem 0.24rem; padding:0.2rem 0.32rem; border-bottom:1px solid #6f00ff; background:#bdb7f5;">
+                  <h3 style="margin:0; font-size:0.95rem;">Edit steps</h3>
+                  <span style="color:#5b45a0; font-size:0.78rem;">3 of 5 done</span>
+                </div>
+                <label style="display:grid; gap:0.35rem; color:#5b45a0; font-size:0.88rem;">One step per line
+                  <textarea rows="5" style="width:100%; border:1px solid #6f00ff; border-radius:3px; background:#f7f4ff; padding:0.28rem 0.36rem; color:#250069; font:inherit; font-size:.85rem; resize:vertical;">Point manage-nginx.conf at 100.75.128.38:3044
+Reload nginx on nova
+Verify /api/health through the proxy</textarea>
+                </label>
+                <div style="display:flex; gap:0.3rem;">
+                  <button style="border:1px solid #6f00ff; border-radius:3px; padding:0.28rem 0.42rem; background:transparent; color:#250069; font:inherit; font-size:.85rem;">Save steps</button>
+                </div>
+              </form>
+            </aside>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <div id="1b" style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; padding:3px 7px; border:1px solid #221d18; background:#221d18; color:#efece7;">1b</span>
+        <span style="font-size:14px; font-weight:600;">Query line + stream</span>
+        <span style="font-size:12px; color:#7a6f63;">One state line replaces modes/filters/projects · inline expand · pinned detail</span>
+      </div>
+      <div style="width:1420px; height:900px; overflow:hidden; border:1px solid #cfc8bd; background:#f2f0fa; color:#1c1330; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:14px; height:40px; padding:0 12px; background:#1c1330; color:#efeaff; flex:0 0 auto;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; letter-spacing:.06em; color:#c9b6ff;">TODOZI/<span style="color:#fff36a;">manage</span></span>
+          <div style="flex:1; display:flex; align-items:center; gap:8px; height:24px; padding:0 8px; border:1px solid #4b3a78; background:#241a44; border-radius:2px;">
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#7d6bb0;">›</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#8f80bd;">type to search · <span style="color:#c9b6ff;">/task</span> <span style="color:#c9b6ff;">/idea</span> <span style="color:#c9b6ff;">/err</span> <span style="color:#c9b6ff;">/queue</span> to capture</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8f80bd;">
+            <span>queue <strong style="color:#efeaff;">5</strong></span>
+            <span>agents <strong style="color:#efeaff;">3</strong></span>
+            <span style="color:#ffb27d;">errors <strong>2</strong></span>
+            <span style="color:#7ee0a8;">synced 12s</span>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:6px; height:34px; padding:0 12px; background:#e6e1f7; border-bottom:1px solid #cdc4ea; flex:0 0 auto;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#6a5b96; margin-right:2px;">view</span>
+          <sc-for list="{{ views }}" as="v" hint-placeholder-count="5">
+            <button onClick="{{ v.pick }}" style="{{ v.style }}">{{ v.label }}<span style="opacity:.6; margin-left:6px; font-weight:400;">{{ v.count }}</span></button>
+          </sc-for>
+          <span style="width:1px; height:16px; background:#cdc4ea; margin:0 6px;"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#6a5b96; margin-right:2px;">where</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border:1px solid #a48bdd; border-radius:2px; background:#fff; font-size:12px;">project: <strong>todozi-manage</strong><span style="color:#8a7ab5;">✕</span></span>
+          <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border:1px solid #a48bdd; border-radius:2px; background:#fff; font-size:12px;">priority: <strong>high+</strong><span style="color:#8a7ab5;">✕</span></span>
+          <button style="height:22px; padding:0 8px; border:1px dashed #b3a6d6; border-radius:2px; background:transparent; color:#6a5b96; font:inherit; font-size:12px;">+ filter</button>
+          <span style="flex:1;"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6a5b96;">21 shown of 33</span>
+        </div>
+
+        <div style="flex:1; display:grid; grid-template-columns:186px minmax(0,1fr) 348px; min-height:0;">
+          <aside style="border-right:1px solid #cdc4ea; background:#ebe8f6; padding:10px 8px; display:flex; flex-direction:column; gap:14px; overflow:hidden;">
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Projects</span>
+              <sc-for list="{{ projects }}" as="p" hint-placeholder-count="5">
+                <button onClick="{{ p.pick }}" style="{{ p.style }}">
+                  <span style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+                    <span style="font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.name }}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">{{ p.open }}</span>
+                  </span>
+                  <span style="display:block; height:3px; margin-top:5px; background:#d8d1ee;">
+                    <span style="display:block; height:3px; background:#6b3ee0; width:{{ p.pct }};"></span>
+                  </span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Saved</span>
+              <button style="text-align:left; padding:5px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Blocked on me <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">3</span></button>
+              <button style="text-align:left; padding:5px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Untriaged <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">7</span></button>
+              <button style="text-align:left; padding:5px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:13px;">Shipped this week <span style="float:right; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a7ab5;">6</span></button>
+            </div>
+            <div style="margin-top:auto; display:flex; flex-direction:column; gap:2px; border-top:1px solid #dcd6ef; padding-top:8px;">
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7ab5; padding:0 6px 4px;">Platform</span>
+              <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:12px;">Queue<span style="font-family:'IBM Plex Mono',monospace; color:#8a7ab5;">5</span></button>
+              <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:12px;">Memories<span style="font-family:'IBM Plex Mono',monospace; color:#8a7ab5;">41</span></button>
+              <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#3b2b62; font:inherit; font-size:12px;">Ideas<span style="font-family:'IBM Plex Mono',monospace; color:#8a7ab5;">18</span></button>
+              <button style="display:flex; justify-content:space-between; padding:4px 6px; border:0; background:transparent; color:#b4531d; font:inherit; font-size:12px;">Errors<span style="font-family:'IBM Plex Mono',monospace;">2</span></button>
+            </div>
+          </aside>
+
+          <div style="min-width:0; overflow:hidden; background:#f7f5fd;">
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px; height:24px; padding:0 12px; background:#e0dbf2; border-top:1px solid #cdc4ea; border-bottom:1px solid #cdc4ea;">
+                  <span style="width:6px; height:6px; background:{{ g.dot }};"></span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; color:#3b2b62;">{{ g.label }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#7d6bb0;">{{ g.count }}</span>
+                  <span style="flex:1;"></span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#7d6bb0;">{{ g.hint }}</span>
+                </div>
+                <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="4">
+                  <div style="{{ t.rowStyle }}">
+                    <div onClick="{{ t.pick }}" style="display:grid; grid-template-columns:14px 18px minmax(0,1fr) auto; align-items:center; gap:9px; padding:6px 12px 6px 9px; cursor:pointer;">
+                      <button onClick="{{ t.toggle }}" style="width:14px; height:18px; padding:0; border:0; background:transparent; color:#8a7ab5; font:inherit; font-size:10px; line-height:1; cursor:pointer;">{{ t.caret }}</button>
+                      <span style="display:inline-grid; place-items:center; width:14px; height:14px; border:1.5px solid #a396c9; border-radius:2px; background:#fff;"></span>
+                      <span style="display:flex; align-items:baseline; gap:8px; min-width:0;">
+                        <span style="font-size:13.5px; font-weight:500; letter-spacing:-0.005em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.title }}</span>
+                        <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#9287b8; white-space:nowrap;">{{ t.meta }}</span>
+                      </span>
+                      <span style="display:flex; align-items:center; gap:10px; white-space:nowrap;">
+                        <span style="display:inline-flex; align-items:center; gap:4px;">
+                          <span style="display:block; width:34px; height:3px; background:#ddd7f0;"><span style="display:block; height:3px; background:#6b3ee0; width:{{ t.pct }};"></span></span>
+                          <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#9287b8;">{{ t.steps }}</span>
+                        </span>
+                        <span style="{{ t.timeStyle }}">{{ t.time }}</span>
+                      </span>
+                    </div>
+                    <sc-if value="{{ t.open }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:16px; padding:2px 12px 10px 41px; background:rgba(255,255,255,.6); border-top:1px dashed #ded7f2;">
+                        <div style="display:flex; flex-direction:column; gap:5px; padding-top:7px;">
+                          <sc-for list="{{ t.stepList }}" as="s" hint-placeholder-count="3">
+                            <label style="display:grid; grid-template-columns:14px minmax(0,1fr); gap:8px; align-items:start; font-size:12.5px; color:#3b2b62;">
+                              <span style="{{ s.box }}"></span>
+                              <span style="{{ s.text }}">{{ s.label }}</span>
+                            </label>
+                          </sc-for>
+                          <button style="align-self:flex-start; margin-top:3px; padding:3px 7px; border:1px dashed #b3a6d6; border-radius:2px; background:transparent; color:#6a5b96; font:inherit; font-size:11.5px;">+ step</button>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:6px; padding:7px 0 0 14px; border-left:1px solid #e2dcf3;">
+                          <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">Note</span>
+                          <p style="margin:0; font-size:12px; line-height:1.45; color:#4a3b71; text-wrap:pretty;">{{ t.note }}</p>
+                          <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:2px;">
+                            <sc-for list="{{ t.tags }}" as="tag" hint-placeholder-count="2">
+                              <span style="padding:1px 5px; border:1px solid #d6cdef; border-radius:2px; background:#fff; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#6a5b96;">{{ tag }}</span>
+                            </sc-for>
+                          </div>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <aside style="border-left:1px solid #cdc4ea; background:#fff; display:flex; flex-direction:column; min-height:0;">
+            <div style="display:flex; align-items:center; gap:8px; height:28px; padding:0 10px; border-bottom:1px solid #e2dcf3; background:#f4f1fb;">
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6b3ee0; font-weight:600;">{{ sel.id }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#9287b8;">pinned</span>
+              <span style="flex:1;"></span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#9287b8;">⌘↵ save · esc close</span>
+            </div>
+            <div style="padding:12px 12px 0;">
+              <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; line-height:1.28; letter-spacing:-0.015em; text-wrap:pretty;">{{ sel.title }}</h2>
+              <div style="display:grid; grid-template-columns:64px minmax(0,1fr); gap:5px 10px; font-size:12.5px; padding-bottom:11px; border-bottom:1px solid #eee9f8;">
+                <span style="color:#9287b8;">status</span><span><span style="display:inline-block; padding:1px 6px; border-radius:2px; background:#efe4ff; color:#5a2fc4; font-weight:500;">in progress</span></span>
+                <span style="color:#9287b8;">priority</span><span><span style="display:inline-block; padding:1px 6px; border-radius:2px; background:#ffe6d6; color:#a8471a; font-weight:500;">urgent</span></span>
+                <span style="color:#9287b8;">project</span><span>todozi-manage</span>
+                <span style="color:#9287b8;">due</span><span>ASAP <span style="color:#9287b8;">· updated 12m ago</span></span>
+              </div>
+            </div>
+            <div style="display:flex; gap:2px; padding:9px 12px 0;">
+              <span style="padding:4px 9px; border-bottom:2px solid #6b3ee0; font-size:12px; font-weight:600; color:#3b2b62;">Steps 3/5</span>
+              <span style="padding:4px 9px; border-bottom:2px solid transparent; font-size:12px; color:#8a7ab5;">Deps 1</span>
+              <span style="padding:4px 9px; border-bottom:2px solid transparent; font-size:12px; color:#8a7ab5;">Notes</span>
+              <span style="padding:4px 9px; border-bottom:2px solid transparent; font-size:12px; color:#8a7ab5;">Raw</span>
+            </div>
+            <div style="flex:1; overflow:hidden; border-top:1px solid #eee9f8; padding:10px 12px; display:flex; flex-direction:column; gap:7px;">
+              <sc-for list="{{ detailSteps }}" as="s" hint-placeholder-count="5">
+                <label style="display:grid; grid-template-columns:14px minmax(0,1fr); gap:9px; align-items:start; font-size:13px; line-height:1.4; color:#2c2049;">
+                  <span style="{{ s.box }}"></span>
+                  <span style="{{ s.text }}">{{ s.label }}</span>
+                </label>
+              </sc-for>
+              <input placeholder="add step…" style="margin-top:2px; height:26px; padding:0 8px; border:1px solid #e2dcf3; border-radius:2px; background:#faf9fe; font:inherit; font-size:12.5px; color:#2c2049;" />
+              <div style="margin-top:10px; padding-top:9px; border-top:1px solid #eee9f8; display:flex; flex-direction:column; gap:6px;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9287b8;">Blocks on</span>
+                <div style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+                  <span style="width:6px; height:6px; background:#c9452b;"></span>
+                  <span>Rotate satellite service env on nova</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#9287b8;">TZ-4790</span>
+                </div>
+              </div>
+              <div style="margin-top:auto; display:flex; gap:6px; padding-top:10px;">
+                <button style="height:26px; padding:0 11px; border:0; border-radius:2px; background:#6b3ee0; color:#fff; font:inherit; font-size:12.5px; font-weight:500;">Save</button>
+                <button style="height:26px; padding:0 11px; border:1px solid #ded7f2; border-radius:2px; background:#fff; color:#4a3b71; font:inherit; font-size:12.5px;">Complete</button>
+                <span style="flex:1;"></span>
+                <button style="height:26px; padding:0 9px; border:0; background:transparent; color:#a89ac9; font:inherit; font-size:12.5px;">Delete</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div id="1c" style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; padding:3px 7px; border:1px solid #221d18; background:#221d18; color:#efece7;">1c</span>
+        <span style="font-size:14px; font-weight:600;">Operator console</span>
+        <span style="font-size:12px; color:#7a6f63;">Dark, keyboard-first · peek overlay · platform signal always in view</span>
+      </div>
+      <div style="width:1420px; height:900px; overflow:hidden; border:1px solid #cfc8bd; background:#12102a; color:#e6e1f7; display:flex; flex-direction:column; position:relative;">
+        <div style="display:flex; align-items:center; gap:16px; height:36px; padding:0 14px; border-bottom:1px solid #2a2452; flex:0 0 auto;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; color:#fff36a;">todozi</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3;">manage · nova · 100.75.128.38:3044</span>
+          <span style="flex:1;"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3;">press <span style="color:#c9b6ff;">:</span> for command · <span style="color:#c9b6ff;">/</span> to search</span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:14px; height:30px; padding:0 14px; border-bottom:1px solid #2a2452; background:#171436; flex:0 0 auto;">
+          <sc-for list="{{ conViews }}" as="v" hint-placeholder-count="4">
+            <button onClick="{{ v.pick }}" style="{{ v.style }}">{{ v.label }} <span style="opacity:.55;">{{ v.count }}</span></button>
+          </sc-for>
+          <span style="flex:1;"></span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3;">project:<span style="color:#c9b6ff;">todozi-manage</span> priority:<span style="color:#c9b6ff;">high+</span></span>
+        </div>
+
+        <div style="flex:1; display:grid; grid-template-columns:minmax(0,1fr) 380px; min-height:0;">
+          <div style="min-width:0; overflow:hidden; padding:8px 0;">
+            <sc-for list="{{ conGroups }}" as="g" hint-placeholder-count="3">
+              <div style="margin-bottom:4px;">
+                <div style="display:flex; align-items:center; gap:9px; padding:5px 14px;">
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:{{ g.dot }}; font-weight:600;">{{ g.label }}</span>
+                  <span style="flex:1; height:1px; background:#241f4d;"></span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5b528c;">{{ g.count }}</span>
+                </div>
+                <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="4">
+                  <div onClick="{{ t.pick }}" style="{{ t.rowStyle }}">
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#5b528c; width:52px;">{{ t.id }}</span>
+                    <span style="display:inline-grid; place-items:center; width:13px; height:13px; border:1px solid #4a4180; background:#1a1740;"></span>
+                    <span style="min-width:0; font-size:13.5px; letter-spacing:-0.005em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ t.title }}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3; white-space:nowrap;">{{ t.steps }}</span>
+                    <span style="display:block; width:44px; height:2px; background:#2a2452;"><span style="display:block; height:2px; background:#a888ff; width:{{ t.pct }};"></span></span>
+                    <span style="{{ t.tagStyle }}">{{ t.tag }}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3; width:54px; text-align:right;">{{ t.time }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <aside style="border-left:1px solid #2a2452; display:flex; flex-direction:column; min-height:0;">
+            <div style="padding:12px 14px; border-bottom:1px solid #2a2452;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:7px;">
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#a888ff;">{{ sel.id }}</span>
+                <span style="padding:1px 6px; background:#3a1f5e; color:#d9b6ff; font-family:'IBM Plex Mono',monospace; font-size:10px;">in_progress</span>
+                <span style="padding:1px 6px; background:#4a2412; color:#ffb27d; font-family:'IBM Plex Mono',monospace; font-size:10px;">urgent</span>
+              </div>
+              <h2 style="margin:0 0 10px; font-size:16.5px; font-weight:600; line-height:1.3; letter-spacing:-0.01em; text-wrap:pretty;">{{ sel.title }}</h2>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <sc-for list="{{ detailSteps }}" as="s" hint-placeholder-count="5">
+                  <label style="display:grid; grid-template-columns:13px minmax(0,1fr); gap:9px; align-items:start; font-size:12.5px; line-height:1.4;">
+                    <span style="{{ s.darkBox }}"></span>
+                    <span style="{{ s.darkText }}">{{ s.label }}</span>
+                  </label>
+                </sc-for>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:12px;">
+                <button style="height:25px; padding:0 10px; border:0; background:#6b3ee0; color:#fff; font:inherit; font-size:12px;">Save</button>
+                <button style="height:25px; padding:0 10px; border:1px solid #3a3369; background:transparent; color:#c4bbe8; font:inherit; font-size:12px;">Complete</button>
+              </div>
+            </div>
+
+            <div style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+              <div style="padding:9px 14px 5px; font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#5b528c;">Signal</div>
+              <sc-for list="{{ signals }}" as="s" hint-placeholder-count="4">
+                <div style="display:grid; grid-template-columns:16px 74px minmax(0,1fr) auto; align-items:center; gap:9px; padding:5px 14px; border-top:1px solid #201c46;">
+                  <span style="width:6px; height:6px; background:{{ s.dot }};"></span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#6d63a3;">{{ s.kind }}</span>
+                  <span style="font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#c4bbe8;">{{ s.text }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#5b528c;">{{ s.when }}</span>
+                </div>
+              </sc-for>
+              <div style="margin-top:auto; border-top:1px solid #2a2452; padding:9px 14px;">
+                <div style="display:flex; align-items:center; gap:8px; height:26px; padding:0 9px; border:1px solid #3a3369; background:#1a1740;">
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:11px; color:#fff36a;">:</span>
+                  <span style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:#6d63a3;">task nginx cert renew --p high</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:16px; height:26px; padding:0 14px; border-top:1px solid #2a2452; background:#171436; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#5b528c; flex:0 0 auto;">
+          <span><span style="color:#c9b6ff;">j/k</span> move</span>
+          <span><span style="color:#c9b6ff;">space</span> peek</span>
+          <span><span style="color:#c9b6ff;">enter</span> pin</span>
+          <span><span style="color:#c9b6ff;">x</span> complete</span>
+          <span><span style="color:#c9b6ff;">g p</span> project</span>
+          <span style="flex:1;"></span>
+          <span>33 tasks · 5 queued · 2 errors</span>
+        </div>
+
+        <sc-if value="{{ showPeek }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute; left:300px; top:250px; width:470px; border:1px solid #4a4180; background:#1a1740; box-shadow:0 24px 60px rgba(0,0,0,.55); padding:12px 14px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:7px;">
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#a888ff;">TZ-4790</span>
+              <span style="padding:1px 6px; background:#4a1f1f; color:#ff9d8a; font-family:'IBM Plex Mono',monospace; font-size:10px;">blocked</span>
+              <span style="flex:1;"></span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5b528c;">space to close · enter to pin</span>
+            </div>
+            <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Rotate satellite service env on nova</div>
+            <p style="margin:0 0 9px; font-size:12.5px; line-height:1.5; color:#a79dd0; text-wrap:pretty;">Keys live in deploy/todozi-manage.env on nova. Blocked until the satellite service window opens at 02:00.</p>
+            <div style="display:flex; gap:5px;">
+              <span style="padding:1px 6px; border:1px solid #3a3369; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#8f85bd;">deploy</span>
+              <span style="padding:1px 6px; border:1px solid #3a3369; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#8f85bd;">secrets</span>
+              <span style="padding:1px 6px; border:1px solid #3a3369; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#8f85bd;">nova</span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1520,&quot;height&quot;:1120},&quot;showEffort&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;View engine&quot;},&quot;groupBy&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Urgency&quot;,&quot;Project&quot;],&quot;default&quot;:&quot;Urgency&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Turn 1 stream&quot;},&quot;showPeek&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Turn 1 console&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;options&quot;:[&quot;#6b3ee0&quot;,&quot;#0d6f66&quot;,&quot;#b4531d&quot;,&quot;#2f4bd8&quot;],&quot;default&quot;:&quot;#6b3ee0&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;View engine&quot;}}">
+const TASKS = [
+  { id: "TZ-4812", title: "Ship manage.err404memory.com behind nginx", project: "todozi-manage", priority: "urgent", status: "in_progress", time: "ASAP", done: 3, total: 5, tags: ["deploy", "nginx"], note: "Cert issued. Waiting on satellite service restart before flipping DNS.", steps: ["Point manage-nginx.conf at 100.75.128.38:3044", "Reload nginx on nova", "Verify /api/health through the proxy", "Flip DNS for manage.err404memory.com", "Smoke test capture from phone"], stepsDone: 3, band: "now" },
+  { id: "TZ-4790", title: "Rotate satellite service env on nova", project: "nova-ops", priority: "urgent", status: "blocked", time: "02:00", done: 0, total: 3, tags: ["deploy", "secrets"], note: "Keys live in deploy/todozi-manage.env on nova. Blocked until the service window opens.", steps: ["Pull current env from bot service", "Write new key set", "Restart todozi-satellite"], stepsDone: 0, band: "now" },
+  { id: "TZ-4771", title: "Keep the Todozi API key server-side only", project: "todozi-manage", priority: "high", status: "in_progress", time: "today", done: 2, total: 4, tags: ["security"], note: "Browser must never see the key — everything forwards through server.js.", steps: ["Audit every fetch in app.js", "Move platform calls behind /api", "Add a proxy test", "Document in README"], stepsDone: 2, band: "now" },
+  { id: "TZ-4744", title: "Finalize Telegram bot config", project: "nova-ops", priority: "high", status: "todo", time: "Thu", done: 0, total: 3, tags: ["bot"], note: "Reuse the validated Todozi keys instead of duplicating them.", steps: ["Confirm webhook host", "Point at shared env file", "Verify capture round-trip"], stepsDone: 0, band: "next" },
+  { id: "TZ-4738", title: "Collapse mode tabs into saved views", project: "todozi-manage", priority: "high", status: "todo", time: "Thu", done: 0, total: 4, tags: ["ux"], note: "Modes, filters and the project list all express the same query today.", steps: ["Define the view schema", "Render filters as chips", "Persist last view", "Drop the modebar"], stepsDone: 0, band: "next" },
+  { id: "TZ-4702", title: "Audit /api/platform response shape", project: "todozi-manage", priority: "medium", status: "todo", time: "Fri", done: 1, total: 3, tags: ["api"], note: "resourceItems() guesses at eight different array keys. Pin the contract.", steps: ["List every returned key", "Write a normalizer", "Cover with fixtures"], stepsDone: 1, band: "next" },
+  { id: "TZ-4655", title: "Backfill training pairs from the queue", project: "agent-orchestrator", priority: "low", status: "todo", time: "—", done: 0, total: 2, tags: ["training"], note: "Low urgency, but the queue keeps growing.", steps: ["Export completed queue items", "Map to prompt/completion"], stepsDone: 0, band: "later" },
+  { id: "TZ-4610", title: "Phone capture shortcut for ideas", project: "general", priority: "low", status: "todo", time: "—", done: 0, total: 2, tags: ["mobile"], note: "One tap from the home screen into /idea.", steps: ["Add manifest", "Deep link to omnibar"], stepsDone: 0, band: "later" },
+];
+
+const BANDS = [
+  { key: "now", label: "Now", dot: "#c9452b", hint: "urgent · blocked · today", conDot: "#ff8a6d" },
+  { key: "next", label: "Next", dot: "#b4531d", hint: "this week", conDot: "#ffc46d" },
+  { key: "later", label: "Later", dot: "#8a7ab5", hint: "unscheduled", conDot: "#8f85bd" },
+];
+
+const ALL = [
+  ...TASKS,
+  { id: "TZ-4598", title: "Normalize step payloads across bot + web", project: "todozi-manage", priority: "medium", status: "in_progress", time: "Fri", tags: ["api"], note: "normalizeStep() lives in three places.", steps: ["Extract to shared module", "Point bot at it", "Backfill fixtures"], stepsDone: 1, band: "next" },
+  { id: "TZ-4571", title: "Persist last view per device", project: "todozi-manage", priority: "medium", status: "todo", time: "—", tags: ["ux"], note: "Phone and laptop want different defaults.", steps: ["Pick storage key", "Restore on boot"], stepsDone: 0, band: "later" },
+  { id: "TZ-4560", title: "Health endpoint should report satellite lag", project: "nova-ops", priority: "medium", status: "todo", time: "Fri", tags: ["ops"], note: "/api/health returns ok even when the satellite is 40s behind. Needed before TZ-4812 can flip.", steps: ["Add lag field", "Surface in header"], stepsDone: 0, band: "next" },
+  { id: "TZ-4522", title: "Chunk graph is unreadable past 200 nodes", project: "agent-orchestrator", priority: "low", status: "todo", time: "—", tags: ["viz"], note: "Needs aggregation before it renders.", steps: ["Cluster by source", "Cap rendered nodes"], stepsDone: 0, band: "later" },
+  { id: "TZ-4501", title: "Wire sync-to-nova into the deploy script", project: "nova-ops", priority: "high", status: "done", time: "done", tags: ["deploy"], note: "Shipped Tuesday.", steps: ["Add rsync step", "Restart service", "Verify"], stepsDone: 3, band: "next" },
+  { id: "TZ-4488", title: "Task toggle should not select the row", project: "todozi-manage", priority: "low", status: "done", time: "done", tags: ["ux"], note: "stopPropagation on the checkbox.", steps: ["Patch bindTaskCards"], stepsDone: 1, band: "later" },
+  { id: "TZ-4455", title: "Move error capture behind /api", project: "todozi-manage", priority: "medium", status: "done", time: "done", tags: ["security"], note: "", steps: ["Proxy route", "Drop client key"], stepsDone: 2, band: "next" },
+  { id: "TZ-4430", title: "Write the frankentui data contract", project: "general", priority: "high", status: "todo", time: "Thu", tags: ["spec"], note: "One schema, three front doors: tui, web, bot. Supersedes the field list in TZ-4598.", steps: ["Enumerate task fields", "Pin status vocabulary", "Version the payload"], stepsDone: 0, band: "next" },
+];
+
+const AXES = [
+  { key: "band", label: "urgency", of: (t) => t.band, order: ["now", "next", "later"], name: { now: "Now", next: "Next", later: "Later" } },
+  { key: "project", label: "project", of: (t) => t.project },
+  { key: "priority", label: "priority", of: (t) => t.priority, order: ["urgent", "high", "medium", "low"] },
+  { key: "status", label: "status", of: (t) => t.status, order: ["blocked", "in_progress", "todo", "done"] },
+  { key: "tag", label: "tag", of: (t) => t.tags[0] || "untagged" },
+];
+
+const RULES = [
+  { key: "done", label: "done", test: (t) => t.status === "done" },
+  { key: "later", label: "later", test: (t) => t.band === "later" },
+  { key: "low", label: "low priority", test: (t) => t.priority === "low" },
+];
+
+const PRI_COLOR = { urgent: "#c9452b", high: "#b4531d", medium: "#6b3ee0", low: "#8a7ab5" };
+
+const REFS = {
+  "TZ-4812": [{ p: "deploy/manage-nginx.conf", l: 12 }, { p: "deploy/todozi-manage.service" }],
+  "TZ-4790": [{ p: "deploy/todozi-manage.env.example" }, { p: "todozi-attachments/tz-4790-restart.log", a: true }],
+  "TZ-4771": [{ p: "server.js", l: 88 }, { p: "public/app.js", l: 264 }],
+  "TZ-4738": [{ p: "public/index.html", l: 23 }, { p: "public/styles.css", l: 1031 }],
+  "TZ-4598": [{ p: "public/app.js", l: 86 }],
+  "TZ-4430": [{ p: "ash.md" }],
+};
+
+const GIT = {
+  "TZ-4812": { branch: "tz-4812-nginx", msg: "proxy /api through the nova bind", when: "2h ago", dirty: 2, ahead: 1 },
+  "TZ-4771": { branch: "tz-4771-keys", msg: "move platform fetch behind /api", when: "1d ago", dirty: 0, ahead: 3 },
+  "TZ-4598": { branch: "tz-4598-steps", msg: "extract normalizeStep", when: "4h ago", dirty: 1, ahead: 0 },
+};
+
+const PEEK = {
+  "deploy/manage-nginx.conf": [[10, "location /api/ {"], [11, "  proxy_pass http://100.75.128.38:3044;"], [12, "  proxy_set_header Host $host;"], [13, "}"]],
+  "public/app.js": [[262, "function applyViewFilters() {"], [263, "  if (!state.bootstrap) {"], [264, "    return;"], [265, "  }"]],
+  "public/styles.css": [[1029, ".mode-tab {"], [1030, "  padding: 0.32rem 0.5rem;"], [1031, "  border: 1px solid #efe7ff;"], [1032, "}"]],
+  "server.js": [[86, "app.use('/api', (req, res, next) => {"], [87, "  req.headers['x-api-key'] = TODOZI_KEY;"], [88, "  next();"], [89, "});"]],
+};
+
+class Component extends DCLogic {
+  state = {
+    sel: "TZ-4812", open: ["TZ-4812"], view: "now", conView: "all",
+    axis: "project", hidden: ["done"], collapsed: [], revealed: [],
+    deps: { "TZ-4812": ["TZ-4790"] }, drag: null, over: null, peek: "TZ-4812|deploy/manage-nginx.conf",
+    deleted: [], trash: {}, confirm: null,
+  };
+
+  removeTask(id, mode) {
+    const deps = { ...this.state.deps };
+    const inherit = mode === "transfer" ? (deps[id] || []) : [];
+    const before = JSON.parse(JSON.stringify(deps));
+    delete deps[id];
+    for (const key of Object.keys(deps)) {
+      if (!deps[key].includes(id)) continue;
+      const rest = deps[key].filter((x) => x !== id);
+      const merged = [...new Set([...rest, ...inherit])];
+      if (merged.length) deps[key] = merged; else delete deps[key];
+    }
+    this.put({
+      deps,
+      deleted: [...this.state.deleted, id],
+      trash: { ...this.state.trash, [id]: before },
+      confirm: null,
+    });
+  }
+
+  restoreTask(id) {
+    const trash = { ...this.state.trash };
+    const deps = trash[id] || this.state.deps;
+    delete trash[id];
+    this.put({ deps, trash, deleted: this.state.deleted.filter((x) => x !== id) });
+  }
+
+  componentDidMount() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("todozi-view-state") || "null");
+      if (saved) this.setState(saved);
+    } catch (e) { /* first run */ }
+  }
+
+  save(next) {
+    const { axis, hidden, collapsed, revealed, open, deps } = { ...this.state, ...next };
+    try { localStorage.setItem("todozi-view-state", JSON.stringify({ axis, hidden, collapsed, revealed, open, deps })); } catch (e) {}
+  }
+
+  put(next) {
+    this.setState(next);
+    this.save(next);
+  }
+
+  flip(key, id) {
+    const list = this.state[key];
+    this.put({ [key]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] });
+  }
+
+  foldAll(keys, fold) {
+    this.put({ collapsed: fold ? [...new Set([...this.state.collapsed, ...keys])] : this.state.collapsed.filter((k) => !keys.includes(k)) });
+  }
+
+  rowsAll(ids, expand) {
+    this.put({ open: expand ? [...new Set([...this.state.open, ...ids])] : this.state.open.filter((id) => !ids.includes(id)) });
+  }
+
+  pick(id) { this.setState({ sel: id }); }
+  toggle(id, e) {
+    if (e) e.stopPropagation();
+    const open = this.state.open.includes(id) ? this.state.open.filter((x) => x !== id) : [...this.state.open, id];
+    this.setState({ open });
+  }
+
+  group(list, dotKey) {
+    const groupBy = this.props.groupBy ?? "Urgency";
+    if (groupBy === "Project") {
+      const names = [...new Set(list.map((t) => t.project))];
+      return names.map((name, i) => ({
+        key: name, label: name, dot: BANDS[i % 3][dotKey], hint: "",
+        items: list.filter((t) => t.project === name),
+      }));
+    }
+    return BANDS.map((b) => ({ key: b.key, label: b.label, dot: b[dotKey], hint: b.hint, items: list.filter((t) => t.band === b.key) }));
+  }
+
+  stepRows(task) {
+    const accent = this.props.accent ?? "#6b3ee0";
+    return task.steps.map((label, i) => {
+      const done = i < task.stepsDone;
+      return {
+        label,
+        box: `display:inline-grid;place-items:center;width:13px;height:13px;margin-top:3px;border:1.5px solid ${done ? accent : "#a396c9"};border-radius:2px;background:${done ? accent : "#fff"};color:#fff;font-size:9px;`,
+        text: done ? "color:#9287b8;text-decoration:line-through;" : "color:#2c2049;",
+        darkBox: `display:inline-grid;place-items:center;width:13px;height:13px;margin-top:3px;border:1px solid ${done ? "#a888ff" : "#4a4180"};background:${done ? "#a888ff" : "#1a1740"};`,
+        darkText: done ? "color:#6d63a3;text-decoration:line-through;" : "color:#d8d2f0;",
+      };
+    });
+  }
+
+  renderVals() {
+    const accent = this.props.accent ?? "#6b3ee0";
+    const sel = TASKS.find((t) => t.id === this.state.sel) || TASKS[0];
+    const chip = (on) => `height:22px;padding:0 9px;border:1px solid ${on ? accent : "transparent"};border-radius:2px;background:${on ? "#fff" : "transparent"};color:${on ? "#2c2049" : "#5f5288"};font:inherit;font-size:12px;font-weight:${on ? 600 : 400};cursor:pointer;`;
+    const conChip = (on) => `padding:2px 9px;border:1px solid ${on ? "#5b4b9c" : "transparent"};background:${on ? "#241f4d" : "transparent"};color:${on ? "#fff36a" : "#8f85bd"};font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;`;
+
+    const views = [
+      { key: "now", label: "Now", count: 3 },
+      { key: "all", label: "All open", count: 21 },
+      { key: "blocked", label: "Blocked", count: 3 },
+      { key: "done", label: "Done", count: 12 },
+      { key: "feed", label: "Feed", count: 9 },
+    ].map((v) => ({ ...v, style: chip(v.key === this.state.view), pick: () => this.setState({ view: v.key }) }));
+
+    const conViews = [
+      { key: "all", label: "all", count: 21 },
+      { key: "mine", label: "urgent", count: 3 },
+      { key: "blocked", label: "blocked", count: 3 },
+      { key: "queue", label: "queue", count: 5 },
+      { key: "err", label: "errors", count: 2 },
+    ].map((v) => ({ ...v, style: conChip(v.key === this.state.conView), pick: () => this.setState({ conView: v.key }) }));
+
+    const projects = [
+      { name: "todozi-manage", open: 14, pct: "62%" },
+      { name: "nova-ops", open: 9, pct: "40%" },
+      { name: "agent-orchestrator", open: 6, pct: "25%" },
+      { name: "general", open: 4, pct: "80%" },
+    ].map((p, i) => ({
+      ...p,
+      pick: () => {},
+      style: `display:block;width:100%;text-align:left;padding:6px 6px 7px;border:0;border-left:2px solid ${i === 0 ? accent : "transparent"};background:${i === 0 ? "#fff" : "transparent"};color:#2c2049;font:inherit;cursor:pointer;`,
+    }));
+
+    const row = (t) => {
+      const on = t.id === this.state.sel;
+      const open = this.state.open.includes(t.id);
+      return {
+        ...t,
+        open,
+        caret: open ? "▾" : "▸",
+        meta: `${t.id} · ${t.project} · ${t.priority}`,
+        steps: `${t.stepsDone}/${t.steps.length}`,
+        pct: `${Math.round((t.stepsDone / t.steps.length) * 100)}%`,
+        stepList: this.stepRows(t),
+        pick: () => this.pick(t.id),
+        toggle: (e) => this.toggle(t.id, e),
+        rowStyle: `border-bottom:1px solid #eae5f7;border-left:2px solid ${on ? accent : "transparent"};background:${on ? "#efeaff" : "transparent"};`,
+        timeStyle: `font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:${t.status === "blocked" ? "#c9452b" : "#9287b8"};`,
+      };
+    };
+
+    const conRow = (t) => {
+      const on = t.id === this.state.sel;
+      return {
+        ...t,
+        steps: `${t.stepsDone}/${t.steps.length}`,
+        pct: `${Math.round((t.stepsDone / t.steps.length) * 100)}%`,
+        tag: t.status === "blocked" ? "blocked" : t.priority,
+        pick: () => this.pick(t.id),
+        rowStyle: `display:grid;grid-template-columns:52px 13px minmax(0,1fr) 34px 44px 62px 54px;align-items:center;gap:11px;padding:5px 14px;border-left:2px solid ${on ? "#a888ff" : "transparent"};background:${on ? "#221d4a" : "transparent"};cursor:pointer;`,
+        tagStyle: `font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-align:center;padding:1px 0;background:${t.status === "blocked" ? "#4a1f1f" : t.priority === "urgent" ? "#4a2412" : "#241f4d"};color:${t.status === "blocked" ? "#ff9d8a" : t.priority === "urgent" ? "#ffb27d" : "#8f85bd"};`,
+      };
+    };
+
+    // --- turn 2: view engine ---------------------------------------------
+    const axis = AXES.find((a) => a.key === this.state.axis) || AXES[0];
+    const axes = AXES.map((a) => ({
+      label: a.label,
+      pick: () => this.setState({ axis: a.key }),
+      style: `padding:2px 9px;border:1px solid ${a.key === this.state.axis ? accent : "transparent"};border-radius:2px;background:${a.key === this.state.axis ? "#fff" : "transparent"};color:${a.key === this.state.axis ? "#2c2049" : "#6a5b96"};font-family:'IBM Plex Mono',monospace;font-size:11.5px;cursor:pointer;`,
+    }));
+
+    const hideRules = RULES.map((r) => {
+      const on = this.state.hidden.includes(r.key);
+      return {
+        label: r.label,
+        count: ALL.filter(r.test).length,
+        toggle: () => this.flip("hidden", r.key),
+        style: `display:inline-flex;align-items:center;gap:6px;height:21px;padding:0 8px;border:1px ${on ? "solid" : "dashed"} ${on ? "#a48bdd" : "#c3b8e4"};border-radius:2px;background:${on ? "#efeaff" : "transparent"};color:${on ? "#4a3b71" : "#8a7ab5"};font:inherit;font-size:11.5px;text-decoration:${on ? "line-through" : "none"};cursor:pointer;`,
+      };
+    });
+
+    const showEffort = this.props.showEffort ?? true;
+    const effortOf = (t) => {
+      const n = t.steps.length;
+      return t.status === "done" ? "done" : n >= 4 ? "day+" : n >= 3 ? "hrs" : n >= 2 ? "quick" : "?";
+    };
+    const deps = this.state.deps;
+    const gone = this.state.deleted;
+    const LIVE = ALL.filter((t) => !gone.includes(t.id));
+    const blockersOf = (id) => (deps[id] || []).filter((x) => !gone.includes(x));
+    const blocksCount = (id) => LIVE.filter((x) => blockersOf(x.id).includes(id)).length;
+    const titleOf = (id) => (ALL.find((x) => x.id === id) || {}).title || id;
+
+    const noteParts = (text) => String(text || "").split(/(TZ-\d+)/).filter(Boolean).map((piece) => ({
+      text: piece,
+      style: /^TZ-\d+$/.test(piece)
+        ? `font-family:'IBM Plex Mono',monospace;font-size:11px;padding:0 3px;border-bottom:1px solid ${accent};color:${accent};cursor:pointer;`
+        : "",
+    }));
+
+    const refChips = (t) => (REFS[t.id] || []).map((r) => {
+      const key = `${t.id}|${r.p}`;
+      const on = this.state.peek === key;
+      return {
+        label: r.l ? `${r.p}:${r.l}` : r.p,
+        kind: r.a ? "file" : "path",
+        pick: (e) => { e.stopPropagation(); this.setState({ peek: on ? null : key }); },
+        style: `display:inline-flex;align-items:center;gap:5px;padding:1px 6px;border:1px solid ${on ? accent : "#d6cdef"};background:${on ? "#efeaff" : "#fff"};color:${on ? "#3b2b62" : "#6a5b96"};font-family:'IBM Plex Mono',monospace;font-size:10.5px;cursor:pointer;`,
+      };
+    });
+
+    const row2 = (t) => {
+      const dragging = this.state.drag === t.id;
+      const over = this.state.over && this.state.over.id === t.id ? this.state.over.mode : null;
+      const peekKey = this.state.peek && this.state.peek.startsWith(`${t.id}|`) ? this.state.peek.split("|")[1] : null;
+      const git = GIT[t.id];
+      const blockers = blockersOf(t.id);
+      const blocks = blocksCount(t.id);
+      return {
+        ...row(t),
+        meta: `${t.id} · ${t.project} · ${t.priority}`,
+        effort: showEffort ? effortOf(t) : "",
+        effortStyle: `font-family:'IBM Plex Mono',monospace;font-size:10.5px;min-width:34px;text-align:right;color:${t.status === "blocked" ? "#c9452b" : "#a396c9"};`,
+        headStyle: [
+          "display:grid;grid-template-columns:14px 18px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 12px 6px 9px;cursor:pointer;",
+          over === "block" ? `outline:2px solid ${accent};outline-offset:-2px;background:rgba(107,62,224,.1);` : "",
+          over === "order" ? `box-shadow:inset 0 3px 0 0 ${accent};` : "",
+          dragging ? "opacity:.4;" : "",
+        ].join(""),
+        dragStart: (e) => { e.dataTransfer.effectAllowed = "link"; this.setState({ drag: t.id }); },
+        dragOver: (e) => {
+          e.preventDefault();
+          if (!this.state.drag || this.state.drag === t.id) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          const mode = e.clientY - r.top < 7 ? "order" : "block";
+          if (over !== mode) this.setState({ over: { id: t.id, mode } });
+        },
+        dragLeave: () => { if (over) this.setState({ over: null }); },
+        drop: (e) => {
+          e.preventDefault();
+          const src = this.state.drag;
+          if (src && src !== t.id && over === "block") {
+            this.put({ deps: { ...deps, [t.id]: [...new Set([...(deps[t.id] || []), src])] }, drag: null, over: null });
+          } else this.setState({ drag: null, over: null });
+        },
+        dragEnd: () => this.setState({ drag: null, over: null }),
+        blocked: blockers.length > 0,
+        blockedBy: blockers.join(", "),
+        blockerTitle: titleOf(blockers[0]),
+        unblock: (e) => { e.stopPropagation(); const d = { ...deps }; delete d[t.id]; this.put({ deps: d }); },
+        blocksLabel: blocks ? `blocks ${blocks}` : "",
+        showBlocks: blocks > 0,
+        refs: refChips(t),
+        refCount: (REFS[t.id] || []).length ? `${(REFS[t.id] || []).length} refs` : "",
+        noteParts: noteParts(t.note),
+        git: git || null,
+        gitLine: git ? `${git.branch} · ${git.msg} · ${git.when}` : "no branch carrying this id",
+        gitStat: git ? `${git.ahead} ahead · ${git.dirty} dirty` : "",
+        gitStyle: `font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:${git ? "#4a3b71" : "#a89ac9"};`,
+        peekOn: !!peekKey,
+        peekPath: peekKey,
+        peekLines: (PEEK[peekKey] || [[1, "fetched on demand from the repo working tree"]]).map(([n, text]) => ({ n: String(n), text })),
+      };
+    };
+
+    const sel2 = LIVE.find((t) => t.id === this.state.sel) || LIVE[0] || sel;
+    const activeRules = RULES.filter((r) => this.state.hidden.includes(r.key));
+    const keys = axis.order ? axis.order.slice() : [...new Set(ALL.map(axis.of))];
+    let totalHidden = 0;
+
+    const vgroups = keys.map((k) => {
+      const all = LIVE.filter((t) => axis.of(t) === k);
+      const tombs = ALL.filter((t) => axis.of(t) === k && gone.includes(t.id)).map((t) => ({
+        id: t.id, title: t.title, restore: () => this.restoreTask(t.id),
+      }));
+      if (!all.length && !tombs.length) return null;
+      if (!all.length) return { key: k, label: axis.name ? axis.name[k] : k, collapsed: false, caret: "▾", toggle: () => {}, count: "0/0", summary: "all deleted", pct: "0%", mix: [], items: [], rowsLabel: "expand rows", rowsAll: () => {}, residue: null, tombs };
+      const revealed = this.state.revealed.includes(k);
+      const stripped = revealed ? [] : all.filter((t) => activeRules.some((r) => r.test(t)) && !blocksCount(t.id));
+      totalHidden += stripped.length;
+      const shown = all.filter((t) => !stripped.includes(t));
+      const doneN = all.filter((t) => t.status === "done").length;
+      const mixTotal = all.length;
+      const collapsed = this.state.collapsed.includes(k);
+      return {
+        key: k,
+        label: axis.name ? axis.name[k] : k,
+        collapsed,
+        caret: collapsed ? "▸" : "▾",
+        toggle: () => this.flip("collapsed", k),
+        count: `${shown.length}/${all.length}`,
+        summary: `${all.length - doneN} open · ${doneN} done`,
+        pct: `${Math.round((doneN / mixTotal) * 100)}%`,
+        mix: ["urgent", "high", "medium", "low"].map((p) => ({
+          style: `display:block;height:4px;width:${(all.filter((t) => t.priority === p).length / mixTotal) * 100}%;background:${PRI_COLOR[p]};`,
+        })),
+        items: collapsed ? [] : shown.map(row2),
+        rowsOpen: shown.some((t) => this.state.open.includes(t.id)),
+        rowsLabel: shown.some((t) => this.state.open.includes(t.id)) ? "collapse rows" : "expand rows",
+        rowsAll: (e) => {
+          if (e) e.stopPropagation();
+          const ids = shown.map((t) => t.id);
+          this.rowsAll(ids, !shown.some((t) => this.state.open.includes(t.id)));
+        },
+        tombs: collapsed ? [] : tombs,
+        residue: !collapsed && stripped.length
+          ? {
+              n: stripped.length,
+              why: activeRules.map((r) => r.label).join(" + "),
+              titles: stripped.slice(0, 3).map((t) => t.title).join(" · "),
+              reveal: () => this.flip("revealed", k),
+            }
+          : null,
+      };
+    }).filter(Boolean);
+
+    const legacyTasks = TASKS.slice(0, 4).map((t) => ({
+      ...t, steps: `${t.stepsDone}/${t.steps.length}`,
+    }));
+
+    const g = (dotKey, mapper) => this.group(TASKS, dotKey).map((grp) => ({
+      ...grp, count: grp.items.length, items: grp.items.map(mapper),
+    }));
+
+    return {
+      axes, hideRules, vgroups,
+      axisLabel: axis.label,
+      selEffort: effortOf(sel2),
+      selRefs: refChips(sel2),
+      sel2,
+      confirmOn: this.state.confirm === sel2.id,
+      askDelete: () => this.setState({ confirm: sel2.id }),
+      cancelDelete: () => this.setState({ confirm: null }),
+      deleteUnlink: () => this.removeTask(sel2.id, "unlink"),
+      deleteTransfer: () => this.removeTask(sel2.id, "transfer"),
+      canTransfer: blocksCount(sel2.id) > 0 && blockersOf(sel2.id).length > 0,
+      transferLabel: `Delete, pass its blocker (${blockersOf(sel2.id)[0]}) down`,
+      impacts: [
+        { text: `${sel2.steps.length} steps and ${(REFS[sel2.id] || []).length} refs go with it`, tone: "#4a3b71" },
+        blocksCount(sel2.id)
+          ? { text: `${blocksCount(sel2.id)} task waiting on this becomes unblocked`, tone: "#8c3c2d" }
+          : { text: "nothing is waiting on this", tone: "#7d6bb0" },
+        blockersOf(sel2.id).length
+          ? { text: `its own blocker link to ${blockersOf(sel2.id)[0]} is discarded`, tone: "#4a3b71" }
+          : { text: "it is not blocked by anything", tone: "#7d6bb0" },
+        LIVE.some((t) => t.id !== sel2.id && String(t.note).includes(sel2.id))
+          ? { text: `mentioned in another note — the text stays, the link goes dead`, tone: "#8c3c2d" }
+          : { text: "not mentioned in any note", tone: "#7d6bb0" },
+      ],
+      selGit: GIT[sel2.id] ? `${GIT[sel2.id].branch} · ${GIT[sel2.id].when}` : "no branch",
+      backlinks: LIVE.filter((t) => t.id !== sel2.id && (String(t.note).includes(sel2.id) || blockersOf(t.id).includes(sel2.id)))
+        .map((t) => ({ id: t.id, title: t.title, why: blockersOf(t.id).includes(sel2.id) ? "blocked by this" : "mentions", pick: () => this.pick(t.id) })),
+      hasBacklinks: LIVE.some((t) => t.id !== sel2.id && (String(t.note).includes(sel2.id) || blockersOf(t.id).includes(sel2.id))),
+      detailSteps2: this.stepRows(sel2),
+      foldAll: () => this.foldAll(keys, true),
+      unfoldAll: () => this.foldAll(keys, false),
+      foldedGroups: `${this.state.collapsed.filter((k) => keys.includes(k)).length}/${keys.length} groups folded`,
+      hiddenTotal: totalHidden,
+      hiddenNote: totalHidden ? `${totalHidden} rows folded away — every one still counted in its group` : "nothing hidden",
+      views, conViews, projects,
+      groups: g("dot", row),
+      conGroups: g("conDot", conRow),
+      legacyTasks,
+      sel,
+      detailSteps: this.stepRows(sel),
+      showPeek: this.props.showPeek ?? true,
+      signals: [
+        { kind: "queue", text: "plan: regenerate nginx conf", when: "2m", dot: "#a888ff" },
+        { kind: "error", text: "satellite 502 on /api/platform", when: "9m", dot: "#ff8a6d" },
+        { kind: "agent", text: "orchestrator idle", when: "14m", dot: "#7ee0a8" },
+        { kind: "idea", text: "phone shortcut into /idea", when: "1h", dot: "#ffc46d" },
+        { kind: "memory", text: "nova bind is 100.75.128.38", when: "3h", dot: "#6d63a3" },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
