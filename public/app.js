@@ -477,8 +477,10 @@ function groupKeysForFields(fields, axis) {
       return [fields.status];
     case "urgency":
       return [fields.urgency];
-    case "tag":
-      return fields.tags.length ? fields.tags : ["untagged"];
+    case "tag": {
+      const uniqueTags = [...new Set(fields.tags)];
+      return uniqueTags.length ? uniqueTags : ["untagged"];
+    }
     default:
       return ["all"];
   }
@@ -543,6 +545,19 @@ function scopedTasks() {
   return tasks;
 }
 
+function tombstoneInScope(tomb) {
+  if (state.searchResults) return false;
+  if (state.selectedProjectScope !== "all" && tomb.axisSnapshot.project !== state.selectedProjectScope) {
+    return false;
+  }
+  const view = VIEWS.find((v) => v.key === state.selectedView);
+  if (view?.filter) {
+    const rawTask = (state.bootstrap?.tasks || []).find((task) => task.id === tomb.taskId);
+    if (!rawTask || !view.filter(rawTask)) return false;
+  }
+  return true;
+}
+
 function orderWithinGroup(groupId, items) {
   const override = viewState.groupOrder[groupId];
   if (!override || !override.length) {
@@ -591,6 +606,7 @@ function buildGroups(axis) {
   }
 
   for (const tomb of viewState.tombstones) {
+    if (!tombstoneInScope(tomb)) continue;
     const keys = groupKeysForFields(tomb.axisSnapshot, axis);
     for (const rawKey of keys) {
       bucket(rawKey).tombs.push(tomb);
@@ -1599,6 +1615,7 @@ function renderViews() {
     button.addEventListener("click", () => {
       const saved = viewState.savedViews.find((view) => view.id === button.dataset.savedView);
       if (!saved) return;
+      state.selectedView = null;
       viewState.axis = saved.axis;
       viewState.hideRules = { ...saved.hideRules };
       saveViewState();
@@ -2362,6 +2379,7 @@ async function handleOmniSubmit(event) {
         }),
       });
       elements.omniInput.value = "";
+      state.searchResults = null;
       await refreshAll();
       setMessage("Task captured.");
       return;
@@ -2369,6 +2387,7 @@ async function handleOmniSubmit(event) {
     if (ideaMatch) {
       await api("/api/ideas", { method: "POST", body: JSON.stringify({ idea: ideaMatch[1] }) });
       elements.omniInput.value = "";
+      state.searchResults = null;
       await refreshAll();
       setMessage("Idea captured.");
       return;
@@ -2384,6 +2403,7 @@ async function handleOmniSubmit(event) {
         }),
       });
       elements.omniInput.value = "";
+      state.searchResults = null;
       await refreshAll();
       setMessage("Error logged.");
       return;
@@ -2397,6 +2417,7 @@ async function handleOmniSubmit(event) {
       if (state.selectedProjectScope !== "all") payload.project_id = state.selectedProjectScope;
       await api("/api/queue/plan", { method: "POST", body: JSON.stringify(payload) });
       elements.omniInput.value = "";
+      state.searchResults = null;
       await refreshAll();
       setMessage("Queue item planned.");
       return;
