@@ -10,7 +10,11 @@ Browser front door for Todozi on satellite/nova.
 
 ## Active Objectives
 
-- None.
+- Rename/relocate: once the 2a redesign lands, this app is slated to be spun out of
+  `todozi-private` into its own repo under its own name (working name: Slated — see the
+  `slated`-tagged idea below), no longer branded as Todozi. Todozi stays as the backend
+  data source; this UI becomes a distinct product on top of it. Not scheduled yet — do
+  this after PR #1 merges, not as part of it.
 
 ## Current Status
 
