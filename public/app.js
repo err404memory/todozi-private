@@ -102,8 +102,10 @@ function loadViewState() {
 function saveViewState() {
   try {
     localStorage.setItem(VIEW_STATE_KEY, JSON.stringify(viewState));
+    return true;
   } catch (error) {
     // storage unavailable (private mode, quota) — view state just won't persist
+    return false;
   }
 }
 
@@ -1425,24 +1427,13 @@ function renderDeleteConfirm(task) {
 
 async function performDelete(task, mode) {
   const impact = computeDeleteImpact(task);
-  const dependentUpdates = impact.dependents.map((dep) => {
-    const nextDeps =
-      mode === "unlink"
-        ? (dep.dependencies || []).filter((id) => id !== task.id)
-        : [
-            ...new Set(
-              (dep.dependencies || [])
-                .map((id) => (id === task.id ? impact.primaryOwnDependency : id))
-                .filter(Boolean),
-            ),
-          ];
+  const dependentMeta = impact.dependents.map((dep) => {
     const restoredId = mode === "unlink" ? null : impact.primaryOwnDependency || null;
     return {
       id: dep.id,
       removedId: task.id,
       restoredId,
       hadPreexistingRestoredId: !!(restoredId && (dep.dependencies || []).includes(restoredId)),
-      resultDependencies: nextDeps,
     };
   });
 
@@ -1455,12 +1446,16 @@ async function performDelete(task, mode) {
     axisSnapshot: fieldsForTask(task),
     restore: {
       previousStatus: formatStatus(task),
-      dependents: dependentUpdates,
+      dependents: dependentMeta,
     },
   };
 
   viewState.tombstones.push(snapshot);
-  saveViewState();
+  if (!saveViewState()) {
+    viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== snapshot.id);
+    setMessage("Delete cancelled: could not save an undo record (local storage unavailable).", "error");
+    return;
+  }
 
   let taskMarkedDeleted = false;
   try {
@@ -1471,12 +1466,18 @@ async function performDelete(task, mode) {
     taskMarkedDeleted = true;
 
     await Promise.all(
-      dependentUpdates.map((dependent) =>
-        api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+      dependentMeta.map(async (dependent) => {
+        const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
+        const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
+        const nextDeps =
+          mode === "unlink"
+            ? freshDeps.filter((id) => id !== task.id)
+            : [...new Set(freshDeps.map((id) => (id === task.id ? impact.primaryOwnDependency : id)).filter(Boolean))];
+        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
-          body: JSON.stringify({ dependencies: dependent.resultDependencies }),
-        }),
-      ),
+          body: JSON.stringify({ dependencies: nextDeps }),
+        });
+      }),
     );
 
     state.confirmDeleteTaskId = null;
@@ -1502,9 +1503,9 @@ async function undoDelete(tombId) {
       body: JSON.stringify({ status: snapshot.restore.previousStatus }),
     });
     await Promise.all(
-      snapshot.restore.dependents.map((dependent) => {
-        const current = findTask(dependent.id);
-        const currentDeps = [...(current?.dependencies || [])];
+      snapshot.restore.dependents.map(async (dependent) => {
+        const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
+        const currentDeps = Array.isArray(fresh?.dependencies) ? [...fresh.dependencies] : [];
         // Drop the id the delete introduced (unless it was already there independently of
         // the delete), then add the removed task's id back — this is safe whether or not
         // the dependent was edited elsewhere in the meantime, since it only ever touches
