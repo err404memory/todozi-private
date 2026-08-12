@@ -1246,32 +1246,52 @@ function toggleRowExpanded(taskId) {
   renderTaskStream();
 }
 
+const taskWriteQueues = new Map();
+
+function enqueueTaskWrite(taskId, fn) {
+  const prev = taskWriteQueues.get(taskId) || Promise.resolve();
+  const settle = prev.then(fn, fn);
+  taskWriteQueues.set(
+    taskId,
+    settle.then(
+      () => {},
+      () => {},
+    ),
+  );
+  return settle;
+}
+
 async function handleRowStepCheck(event) {
   event.stopPropagation();
   const checkbox = event.currentTarget;
   const taskId = checkbox.dataset.rowStepCheck;
   const stepIndex = Number(checkbox.dataset.rowStepIndex);
-  const stepRecord = state.taskSteps[taskId]?.data;
-  const steps = normalizeSteps(stepRecord?.steps);
+  const checked = checkbox.checked;
   const task = findTask(taskId);
-  if (!task || !steps[stepIndex]) return;
-  steps[stepIndex] = { ...steps[stepIndex], done: checkbox.checked };
+  if (!task) return;
   checkbox.disabled = true;
   try {
-    const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/steps`, {
-      method: "PUT",
-      body: JSON.stringify({
-        project_id: stepRecord?.project_id || formatTaskProject(task),
-        status: stepRecord?.status || "active",
-        summary: stepRecord?.summary || "",
-        steps,
-      }),
+    await enqueueTaskWrite(taskId, async () => {
+      const stepRecord = state.taskSteps[taskId]?.data;
+      const steps = normalizeSteps(stepRecord?.steps);
+      if (!steps[stepIndex]) return;
+      steps[stepIndex] = { ...steps[stepIndex], done: checked };
+      const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/steps`, {
+        method: "PUT",
+        body: JSON.stringify({
+          project_id: stepRecord?.project_id || formatTaskProject(task),
+          status: stepRecord?.status || "active",
+          summary: stepRecord?.summary || "",
+          steps,
+        }),
+      });
+      state.taskSteps[taskId] = { data };
     });
-    state.taskSteps[taskId] = { data };
+    checkbox.disabled = false;
     renderTaskStream();
     if (state.selectedTaskId === taskId) renderTaskDetail();
   } catch (error) {
-    checkbox.checked = !checkbox.checked;
+    checkbox.checked = !checked;
     checkbox.disabled = false;
     setMessage(`Step update failed: ${error.message}`, "error");
   }
@@ -1494,9 +1514,12 @@ async function performDelete(task, mode) {
   }
 }
 
+const undosInFlight = new Set();
+
 async function undoDelete(tombId) {
   const snapshot = viewState.tombstones.find((tomb) => tomb.id === tombId);
   if (!snapshot) return;
+  undosInFlight.add(tombId);
   try {
     await api(`/api/tasks/${encodeURIComponent(snapshot.taskId)}`, {
       method: "PUT",
@@ -1521,10 +1544,14 @@ async function undoDelete(tombId) {
       }),
     );
     viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== tombId);
+    undosInFlight.delete(tombId);
     saveViewState();
     await refreshAll();
     setMessage(`Restored ${snapshot.taskId}.`);
   } catch (error) {
+    // Leave tombId in undosInFlight: if the status PUT already succeeded but a dependent
+    // rewrite failed, the tombstone is still the only retry path and must survive future
+    // refreshes pruning it just because the task itself now looks live.
     setMessage(`Undo failed: ${error.message}`, "error");
   }
 }
@@ -2308,25 +2335,28 @@ async function handleStepsSubmit(event) {
   const task = findTask(state.selectedTaskId);
   if (!task) return;
   const form = event.currentTarget;
-  const existingSteps = normalizeSteps(state.taskSteps[task.id]?.data?.steps);
-  const steps = String(form.elements.steps.value || "")
+  const lines = String(form.elements.steps.value || "")
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => ({
-      text: line,
-      done: existingSteps.find((step) => step.text === line)?.done || false,
-    }));
+    .filter(Boolean);
+  const summaryValue = form.elements.summary.value;
   try {
-    const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`, {
-      method: "PUT",
-      body: JSON.stringify({
-        project_id: formatTaskProject(task),
-        summary: form.elements.summary.value,
-        steps,
-      }),
+    await enqueueTaskWrite(task.id, async () => {
+      const existingSteps = normalizeSteps(state.taskSteps[task.id]?.data?.steps);
+      const steps = lines.map((line) => ({
+        text: line,
+        done: existingSteps.find((step) => step.text === line)?.done || false,
+      }));
+      const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`, {
+        method: "PUT",
+        body: JSON.stringify({
+          project_id: formatTaskProject(task),
+          summary: summaryValue,
+          steps,
+        }),
+      });
+      state.taskSteps[task.id] = { data };
     });
-    state.taskSteps[task.id] = { data };
     await loadTaskSteps(task);
     renderTaskStream();
     setMessage(`Saved steps for ${task.id}.`);
@@ -2431,8 +2461,11 @@ async function handleDependencyToggle(event) {
 
 /* ---------- omnibar: search + /task /idea /err capture ---------- */
 
+let omniGeneration = 0;
+
 async function handleOmniSubmit(event) {
   event.preventDefault();
+  const myGeneration = ++omniGeneration;
   const raw = elements.omniInput.value.trim();
   if (!raw) {
     state.searchResults = null;
@@ -2502,12 +2535,14 @@ async function handleOmniSubmit(event) {
 
     state.searchQuery = raw;
     const results = await api(`/api/search?q=${encodeURIComponent(raw)}`);
+    if (myGeneration !== omniGeneration) return;
     state.searchResults = Array.isArray(results) ? results : [];
     if (state.selectedTaskId && !state.searchResults.some((task) => task.id === state.selectedTaskId)) {
       state.selectedTaskId = null;
     }
     renderAll();
   } catch (error) {
+    if (myGeneration !== omniGeneration) return;
     setMessage(`Capture/search failed: ${error.message}`, "error");
   }
 }
@@ -2658,7 +2693,9 @@ async function refreshAll() {
       const rawTask = (state.bootstrap?.tasks || []).find((task) => task.id === taskId);
       return !rawTask || taskIsDeleted(rawTask);
     };
-    const keptTombstones = viewState.tombstones.filter((tomb) => stillDeleted(tomb.taskId));
+    const keptTombstones = viewState.tombstones.filter(
+      (tomb) => undosInFlight.has(tomb.id) || stillDeleted(tomb.taskId),
+    );
     if (keptTombstones.length !== viewState.tombstones.length) {
       viewState.tombstones = keptTombstones;
       saveViewState();
