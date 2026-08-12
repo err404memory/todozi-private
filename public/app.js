@@ -741,15 +741,16 @@ async function runWithConcurrency(items, limit, fn) {
 async function ensureRowData(taskId) {
   const task = findTask(taskId);
   if (!task) return;
+  const startGeneration = refreshGeneration;
 
   if (!state.taskRefs[taskId]) {
     state.taskRefs[taskId] = { loading: true };
     renderTaskStream();
     try {
       const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`);
-      state.taskRefs[taskId] = { data };
+      if (refreshGeneration === startGeneration) state.taskRefs[taskId] = { data };
     } catch (error) {
-      state.taskRefs[taskId] = { error: error.message };
+      if (refreshGeneration === startGeneration) state.taskRefs[taskId] = { error: error.message };
     }
   }
 
@@ -757,12 +758,10 @@ async function ensureRowData(taskId) {
     state.taskGit[taskId] = { loading: true };
     renderTaskStream();
     try {
-      const data = await api(
-        `/api/tasks/${encodeURIComponent(taskId)}/git?project=${encodeURIComponent(formatTaskProject(task))}`,
-      );
-      state.taskGit[taskId] = { data };
+      const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/git`);
+      if (refreshGeneration === startGeneration) state.taskGit[taskId] = { data };
     } catch (error) {
-      state.taskGit[taskId] = { error: error.message };
+      if (refreshGeneration === startGeneration) state.taskGit[taskId] = { error: error.message };
     }
   }
 
@@ -788,7 +787,7 @@ async function toggleRefPeek(taskId, refId) {
   renderTaskStream();
   try {
     const data = await api(
-      `/api/tasks/${encodeURIComponent(taskId)}/refs/peek?refId=${encodeURIComponent(refId)}&project=${encodeURIComponent(formatTaskProject(task))}`,
+      `/api/tasks/${encodeURIComponent(taskId)}/refs/peek?refId=${encodeURIComponent(refId)}`,
     );
     state.peeks[key] = { data };
   } catch (error) {

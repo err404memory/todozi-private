@@ -130,6 +130,16 @@ async function todoziRequest(method, route, { body = undefined, useAdmin = false
   return data;
 }
 
+async function resolveTaskProject(taskId) {
+  try {
+    const task = await todoziRequest("GET", `/tasks/${encodeURIComponent(taskId)}`);
+    const project = task?.parent_project || task?.project || task?.project_name;
+    return typeof project === "string" && project.trim() ? project.trim() : "general";
+  } catch (error) {
+    return "general";
+  }
+}
+
 async function readJsonBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -793,7 +803,7 @@ async function handleApi(req, res, pathname, query) {
   if (refsPeekMatch && req.method === "GET") {
     const taskId = decodeURIComponent(refsPeekMatch[1]);
     const refId = query.get("refId") || "";
-    const project = query.get("project") || "general";
+    const project = await resolveTaskProject(taskId);
     const record = readTaskRefs(taskId);
     const ref = record.refs.find((item) => item.id === refId);
     if (!ref) {
@@ -822,7 +832,7 @@ async function handleApi(req, res, pathname, query) {
   const gitMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/git$/);
   if (gitMatch && req.method === "GET") {
     const taskId = decodeURIComponent(gitMatch[1]);
-    const project = query.get("project") || "general";
+    const project = await resolveTaskProject(taskId);
     const status = await gitStatusFor(taskId, project);
     return sendJson(res, 200, status);
   }
