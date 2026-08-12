@@ -553,7 +553,9 @@ function tombstoneInScope(tomb) {
   const view = VIEWS.find((v) => v.key === state.selectedView);
   if (view?.filter) {
     const rawTask = (state.bootstrap?.tasks || []).find((task) => task.id === tomb.taskId);
-    if (!rawTask || !view.filter(rawTask)) return false;
+    if (!rawTask) return false;
+    const preDeleteTask = { ...rawTask, status: tomb.restore.previousStatus };
+    if (!view.filter(preDeleteTask)) return false;
   }
   return true;
 }
@@ -2443,7 +2445,10 @@ function isTypingTarget(el) {
 function moveFocus(delta) {
   if (!state.visibleRowOrder.length) return;
   const currentIndex = state.visibleRowOrder.findIndex((row) => `${row.groupId}::${row.taskId}` === state.focusedRowKey);
-  const nextIndex = Math.min(state.visibleRowOrder.length - 1, Math.max(0, (currentIndex === -1 ? 0 : currentIndex) + delta));
+  const nextIndex =
+    currentIndex === -1
+      ? (delta > 0 ? 0 : state.visibleRowOrder.length - 1)
+      : Math.min(state.visibleRowOrder.length - 1, Math.max(0, currentIndex + delta));
   const next = state.visibleRowOrder[nextIndex];
   state.focusedRowKey = `${next.groupId}::${next.taskId}`;
   renderTaskStream();
