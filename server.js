@@ -1,12 +1,15 @@
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { execFile } = require("node:child_process");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const TODOZI_DIR = path.join(process.env.HOME || "/home/ash", ".todozi");
 const STEPS_DIR = path.join(TODOZI_DIR, "steps");
 const IDEAS_DIR = path.join(TODOZI_DIR, "ideas");
+const REFS_DIR = path.join(TODOZI_DIR, "refs");
+const REPO_MAP_PATH = path.join(TODOZI_DIR, "repo-map.json");
 const PROJECT_TASKS_DIR = path.join(TODOZI_DIR, "project_tasks");
 const LEGACY_TASKS_DIR = path.join(TODOZI_DIR, "tasks");
 
@@ -223,6 +226,157 @@ function writeTaskSteps(taskId, payload) {
   };
   fs.writeFileSync(stepsPath(taskId), `${JSON.stringify(next, null, 2)}\n`);
   return next;
+}
+
+function refsPath(taskId) {
+  return path.join(REFS_DIR, `${safeTaskId(taskId)}.json`);
+}
+
+function defaultRefs(taskId) {
+  return {
+    created_at: new Date().toISOString(),
+    task_id: safeTaskId(taskId),
+    refs: [],
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function readTaskRefs(taskId) {
+  const filePath = refsPath(taskId);
+  if (!fs.existsSync(filePath)) {
+    return defaultRefs(taskId);
+  }
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function normalizeRef(ref, index) {
+  const cleanPath = String(ref?.path || "").trim();
+  const line = ref?.line === null || ref?.line === undefined || ref?.line === ""
+    ? null
+    : Number(ref.line);
+  const kind = ref?.kind === "file" ? "file" : "path";
+  return {
+    id: String(ref?.id || `${Date.now().toString(36)}_${index}`),
+    path: cleanPath,
+    line: Number.isFinite(line) ? line : null,
+    kind,
+    label: String(ref?.label || cleanPath.split("/").pop() || cleanPath),
+  };
+}
+
+function writeTaskRefs(taskId, payload) {
+  fs.mkdirSync(REFS_DIR, { recursive: true });
+  const existing = readTaskRefs(taskId);
+  const refs = Array.isArray(payload.refs)
+    ? payload.refs.map(normalizeRef).filter((ref) => ref.path)
+    : [];
+  const next = {
+    ...existing,
+    task_id: safeTaskId(taskId),
+    refs,
+    updated_at: new Date().toISOString(),
+  };
+  fs.writeFileSync(refsPath(taskId), `${JSON.stringify(next, null, 2)}\n`);
+  return next;
+}
+
+function readRepoMap() {
+  if (!fs.existsSync(REPO_MAP_PATH)) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(REPO_MAP_PATH, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function resolveRepoPath(projectName) {
+  const map = readRepoMap();
+  const repoPath = map[projectName];
+  if (!repoPath || typeof repoPath !== "string") {
+    return null;
+  }
+  const resolved = path.resolve(repoPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return null;
+  }
+  return resolved;
+}
+
+function runGit(repoPath, args) {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      args,
+      { cwd: repoPath, timeout: 5000, windowsHide: true },
+      (error, stdout) => {
+        resolve(error ? null : stdout.trim());
+      },
+    );
+  });
+}
+
+async function gitStatusFor(taskId, projectName) {
+  const repoPath = resolveRepoPath(projectName);
+  if (!repoPath) {
+    return { configured: false };
+  }
+
+  const [branch, lastCommit, lastCommitAge, aheadBehind, statusPorcelain] = await Promise.all([
+    runGit(repoPath, ["branch", "--show-current"]),
+    runGit(repoPath, ["log", `--grep=${taskId}`, "--oneline", "-1"]),
+    runGit(repoPath, ["log", `--grep=${taskId}`, "--format=%cr", "-1"]),
+    runGit(repoPath, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
+    runGit(repoPath, ["status", "--porcelain"]),
+  ]);
+
+  let ahead = null;
+  let behind = null;
+  if (aheadBehind) {
+    const parts = aheadBehind.split(/\s+/).map(Number);
+    if (parts.length === 2 && parts.every(Number.isFinite)) {
+      [behind, ahead] = parts;
+    }
+  }
+
+  const dirtyCount = statusPorcelain
+    ? statusPorcelain.split("\n").filter((line) => line.trim()).length
+    : 0;
+
+  return {
+    configured: true,
+    repo: repoPath,
+    branch: branch || null,
+    lastCommit: lastCommit || null,
+    lastCommitAge: lastCommit ? lastCommitAge || null : null,
+    ahead,
+    behind,
+    dirty: dirtyCount,
+  };
+}
+
+async function peekFile(projectName, refPath, line) {
+  const repoPath = resolveRepoPath(projectName);
+  if (!repoPath) {
+    throw new Error("No repo configured for this project.");
+  }
+  const resolved = path.resolve(repoPath, refPath);
+  const withSep = repoPath.endsWith(path.sep) ? repoPath : `${repoPath}${path.sep}`;
+  if (resolved !== repoPath && !resolved.startsWith(withSep)) {
+    throw new Error("Ref path escapes the configured repo.");
+  }
+  const content = fs.readFileSync(resolved, "utf8");
+  const allLines = content.split("\n");
+  const target = Number.isFinite(line) && line > 0 ? line : null;
+  const start = target ? Math.max(0, target - 10) : 0;
+  const end = target ? Math.min(allLines.length, target + 10) : Math.min(allLines.length, 20);
+  const lines = allLines.slice(start, end).map((text, index) => ({
+    n: start + index + 1,
+    text,
+  }));
+  return { path: refPath, repo: repoPath, lines };
 }
 
 function normalizeTaskPatch(payload) {
@@ -609,6 +763,44 @@ async function handleApi(req, res, pathname, query) {
       const payload = await readJsonBody(req);
       return sendJson(res, 200, writeTaskSteps(taskId, payload));
     }
+  }
+
+  const refsPeekMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/refs\/peek$/);
+  if (refsPeekMatch && req.method === "GET") {
+    const taskId = decodeURIComponent(refsPeekMatch[1]);
+    const refId = query.get("refId") || "";
+    const project = query.get("project") || "general";
+    const record = readTaskRefs(taskId);
+    const ref = record.refs.find((item) => item.id === refId);
+    if (!ref) {
+      return sendJson(res, 404, { error: "Ref not found." });
+    }
+    try {
+      const peek = await peekFile(project, ref.path, ref.line);
+      return sendJson(res, 200, peek);
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message });
+    }
+  }
+
+  const refsMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/refs$/);
+  if (refsMatch) {
+    const taskId = decodeURIComponent(refsMatch[1]);
+    if (req.method === "GET") {
+      return sendJson(res, 200, readTaskRefs(taskId));
+    }
+    if (req.method === "PUT") {
+      const payload = await readJsonBody(req);
+      return sendJson(res, 200, writeTaskRefs(taskId, payload));
+    }
+  }
+
+  const gitMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/git$/);
+  if (gitMatch && req.method === "GET") {
+    const taskId = decodeURIComponent(gitMatch[1]);
+    const project = query.get("project") || "general";
+    const status = await gitStatusFor(taskId, project);
+    return sendJson(res, 200, status);
   }
 
   const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);

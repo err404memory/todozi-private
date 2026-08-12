@@ -20,17 +20,84 @@ Browser front door for Todozi on satellite/nova.
   `todozi.service` at `http://100.115.124.101:8636`.
 - Project display derives missing project names from `/tasks`, because Todozi's raw
   `/projects` endpoint currently reports only `general`.
-- The browser UI mirrors the remembered Todozi TUI sections with Projects, Tasks, Done,
-  Find, More, API, and Feed modes, plus status/priority/project filters.
+- The browser UI is now the "2a" design: modes/filters collapsed into one query line, a
+  first-class grouping axis (project/urgency/priority/status/tag), and object-permanence
+  fold rules (folded/deleted rows leave a residue or tombstone in place instead of
+  disappearing). The old Projects/Tasks/Done/Find/More/API/Feed mode tabs and separate
+  status/priority/project filter form are gone; the existing capture forms and platform
+  resource browser are still there, behind Capture/Platform toggle buttons in the left rail.
 - Task steps are exposed through local manage routes backed by
   `/home/ash/.todozi/steps/*.json`.
 - Ideas are exposed through local manage fallback records in `/home/ash/.todozi/ideas/*.json`
   because Todozi's native idea commands are currently stubs and the backend idea write route
   times out.
-- Visible task cards include interactive checkboxes that toggle Todozi task status between
+- Path refs (`{path, line?, kind}`) are exposed the same way through
+  `/home/ash/.todozi/refs/*.json`. Real git status (branch, last commit matching the task
+  id, ahead/behind, dirty count) and read-only file peek are wired to actual `git`/filesystem
+  calls, scoped per-project via `/home/ash/.todozi/repo-map.json` (`{ "project-name":
+  "/abs/path/to/repo" }`, not created automatically — add project entries there to turn git
+  integration on for a project; unconfigured projects just say "no repo configured").
+- Task delete is now a soft delete (`status: "deleted"`) instead of the real backend
+  `DELETE`, so the tombstone row's "undo" is fully reliable. Deleted tasks are filtered out
+  of every view and only reappear as a struck-through tombstone with an "undo" button.
+- Visible task rows include interactive checkboxes that toggle Todozi task status between
   `todo` and `done`.
 
 ## Session Log
+
+### 2026-08-12 — 2a design implemented: axis switcher + object permanence
+
+- What changed: Implemented the "2a" screen from the `Layout and progressive disclosure`
+  Claude Design handoff. Replaced the mode-tab/filter-form header with a top bar (search
+  omnibar with `/task`, `/idea`, `/err` capture prefixes, queue/error counts, sync
+  indicator) and an axis/fold toolbar (group-by chips for project/urgency/priority/status/tag,
+  fold-rule chips for done/blocked, fold all/unfold all).
+- What changed: Rebuilt the task list as a grouped stream: group headers carry a
+  count/summary/priority-mix-bar/percent-done and a per-group expand-rows toggle. Fold rules
+  never delete rows — hidden items collapse into a dashed "N folded here" residue row with
+  the reasons and first few titles, revealed in place on click. Row state (axis, folded
+  groups, hide rules, revealed residues, expanded rows, manual drag reorder, saved views,
+  delete tombstones) persists in `localStorage` across reloads.
+- What changed: Task rows expand inline to show a steps checklist, the note with `task_*`
+  ids autolinked (click to jump to that task), path refs as chips with an on-demand read-only
+  peek (new `GET /api/tasks/:id/refs/peek`), and a real git status line (new
+  `GET /api/tasks/:id/git`, shelling `git branch`/`git log --grep=<id>`/`git status
+  --porcelain` via `execFile`, scoped to a repo path from `~/.todozi/repo-map.json`).
+- What changed: Dragging a row onto another row's body creates a dependency
+  (block/blocked-by) via the existing task PUT route; dragging onto a row's top ~30% instead
+  reorders within the group (client-side order override, not a new backend field) — the two
+  drop zones render with visibly different highlights so one can't be mistaken for the
+  other. Blocked rows show a permanent "blocked by …" line with an unlink action.
+- What changed: Delete is now a two-step flow: an inline (non-modal) impact preview in the
+  detail pane listing what depends on the task, what it depends on, and which notes mention
+  it, with "Delete and unlink" and (when relevant) "Delete and pass its blocker down".
+  Delete itself became a soft delete (`status: "deleted"` via the existing task PUT route,
+  not the real backend `DELETE`) so the resulting tombstone row's "undo" reliably restores
+  both the task and every dependent's link, snapshotted client-side.
+- What changed: Added a `refs` local JSON store (`~/.todozi/refs/*.json`, mirrors the
+  existing `steps`/`ideas` pattern) plus `GET/PUT /api/tasks/:id/refs`,
+  `GET /api/tasks/:id/refs/peek`, and `GET /api/tasks/:id/git` routes in `server.js`. Peek
+  reads are path-traversal-guarded to the configured repo root; git/peek both no-op
+  gracefully ("no repo configured") when a project has no `repo-map.json` entry.
+- What changed: Existing capture forms (idea/memory/error/queue/training, plus quick task
+  create) and the platform-resource browser (agents/memories/errors/etc.) were kept
+  unchanged and moved behind new Capture/Platform toggle buttons in the left rail instead of
+  being removed.
+- Current status: `node --check server.js` and `node --check public/app.js` passed. Ran the
+  app against a local stub Todozi backend and a scratch git repo (never against the real
+  nova deployment or real `~/.todozi` data). A headless-browser pass covering axis
+  switching, fold/residue rows and their reload-persistence, real git-branch/commit display
+  for a configured repo vs. "no repo configured" for an unconfigured one, real file peek,
+  drag-to-block vs. drag-to-reorder (distinct zone highlighting, verified via dispatched
+  `DragEvent`s since Playwright's mouse emulation doesn't fire native HTML5 drag events),
+  delete-impact preview, unlink + tombstone + undo (including that undo survives a reload),
+  omnibar `/task` capture, and the Capture/Platform panel toggles all passed (27/27 checks).
+- Remaining blockers or next steps: `~/.todozi/repo-map.json` doesn't exist yet on nova, so
+  every project will show "no repo configured" until entries are added for the real repo
+  paths. Attachments (non-repo files) still need a manual drop-in under
+  `~/.todozi/attachments/<task_id>/` plus a path ref pointing at it — no upload widget was
+  built, to avoid adding a dependency to an otherwise zero-dependency app. Manual row
+  reordering is view-local (per axis/group, in `localStorage`) rather than a backend field.
 
 ### 2026-08-11 — Wrapped titles, toggled sub-actions, and stronger hierarchy
 
