@@ -350,9 +350,8 @@ async function gitStatusFor(taskId, projectName) {
     }
   }
 
-  const dirtyCount = statusPorcelain
-    ? statusPorcelain.split("\n").filter((line) => line.trim()).length
-    : 0;
+  const dirtyCount =
+    statusPorcelain === null ? null : statusPorcelain.split("\n").filter((line) => line.trim()).length;
 
   return {
     configured: true,

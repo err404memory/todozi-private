@@ -841,7 +841,8 @@ function renderGitLine(gitState) {
   if (data.ahead) stat.push(`${data.ahead} ahead`);
   if (data.behind) stat.push(`${data.behind} behind`);
   if (data.dirty) stat.push(`${data.dirty} dirty`);
-  return `${parts.join(` ${MDOT} `)} <span class="muted">${escapeHtml(stat.join(` ${MDOT} `) || "clean")}</span>`;
+  const statusLabel = stat.length ? stat.join(` ${MDOT} `) : data.dirty === null ? "status unknown" : "clean";
+  return `${parts.join(` ${MDOT} `)} <span class="muted">${escapeHtml(statusLabel)}</span>`;
 }
 
 function renderGitSummary(gitState) {
@@ -1119,11 +1120,15 @@ function bindTaskStream() {
       const group = buildGroups(viewState.axis).find((g) => g.id === id);
       if (!group) return;
       const allExpanded = group.rows.length > 0 && group.rows.every((row) => viewState.expandedRows[row.task.id]);
+      const nowExpanded = !allExpanded;
       for (const row of group.rows) {
-        viewState.expandedRows[row.task.id] = !allExpanded;
+        viewState.expandedRows[row.task.id] = nowExpanded;
       }
       saveViewState();
       renderTaskStream();
+      if (nowExpanded) {
+        for (const row of group.rows) ensureRowData(row.task.id);
+      }
     });
   });
 
@@ -1404,22 +1409,28 @@ async function performDelete(task, mode) {
     axisSnapshot: fieldsForTask(task),
     restore: {
       previousStatus: formatStatus(task),
-      dependents: impact.dependents.map((dep) => ({
-        id: dep.id,
-        removedId: task.id,
-        restoredId: mode === "unlink" ? null : impact.primaryOwnDependency || null,
-      })),
+      dependents: impact.dependents.map((dep) => {
+        const restoredId = mode === "unlink" ? null : impact.primaryOwnDependency || null;
+        return {
+          id: dep.id,
+          removedId: task.id,
+          restoredId,
+          hadPreexistingRestoredId: !!(restoredId && (dep.dependencies || []).includes(restoredId)),
+        };
+      }),
     },
   };
 
   viewState.tombstones.push(snapshot);
   saveViewState();
 
+  let taskMarkedDeleted = false;
   try {
     await api(`/api/tasks/${encodeURIComponent(task.id)}`, {
       method: "PUT",
       body: JSON.stringify({ status: "deleted" }),
     });
+    taskMarkedDeleted = true;
 
     await Promise.all(
       impact.dependents.map((dependent) => {
@@ -1445,6 +1456,10 @@ async function performDelete(task, mode) {
     await refreshAll();
     setMessage(`Deleted ${task.id}.`);
   } catch (error) {
+    if (!taskMarkedDeleted) {
+      viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== snapshot.id);
+      saveViewState();
+    }
     await refreshAll();
     setMessage(`Delete failed: ${error.message}`, "error");
   }
@@ -1462,7 +1477,7 @@ async function undoDelete(tombId) {
       snapshot.restore.dependents.map((dependent) => {
         const current = findTask(dependent.id);
         let nextDeps = [...(current?.dependencies || [])];
-        if (dependent.restoredId) {
+        if (dependent.restoredId && !dependent.hadPreexistingRestoredId) {
           const idx = nextDeps.indexOf(dependent.restoredId);
           if (idx !== -1) {
             nextDeps[idx] = dependent.removedId;
@@ -1630,6 +1645,10 @@ function renderViews() {
       if (view?.axis) {
         viewState.axis = view.axis;
         saveViewState();
+      }
+      const selected = state.selectedTaskId ? findTask(state.selectedTaskId) : null;
+      if (!selected || (view?.filter && !view.filter(selected))) {
+        state.selectedTaskId = null;
       }
       renderAll();
     });
