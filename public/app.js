@@ -723,6 +723,17 @@ function jumpToTask(taskId) {
 
 /* ---------- refs / git / peek (lazy row data) ---------- */
 
+async function runWithConcurrency(items, limit, fn) {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function ensureRowData(taskId) {
   const task = findTask(taskId);
   if (!task) return;
@@ -783,7 +794,11 @@ async function toggleRefPeek(taskId, refId) {
 }
 
 async function removeRef(taskId, refId) {
-  const current = state.taskRefs[taskId]?.data?.refs || [];
+  if (!state.taskRefs[taskId]?.data) {
+    setMessage("Refs are still loading — try again in a moment.", "error");
+    return;
+  }
+  const current = state.taskRefs[taskId].data.refs || [];
   const nextRefs = current.filter((ref) => ref.id !== refId);
   try {
     const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
@@ -805,8 +820,12 @@ async function handleRefAddSubmit(event) {
   const taskId = form.dataset.refAdd;
   const raw = form.elements.ref.value.trim();
   if (!raw) return;
+  if (!state.taskRefs[taskId]?.data) {
+    setMessage("Refs are still loading — try again in a moment.", "error");
+    return;
+  }
   const [rawPath, rawLine] = raw.split(":");
-  const current = state.taskRefs[taskId]?.data?.refs || [];
+  const current = state.taskRefs[taskId].data.refs || [];
   const nextRefs = [...current, { path: rawPath.trim(), line: rawLine ? Number(rawLine) : null, kind: "path" }];
   try {
     const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
@@ -1127,7 +1146,11 @@ function bindTaskStream() {
       saveViewState();
       renderTaskStream();
       if (nowExpanded) {
-        for (const row of group.rows) ensureRowData(row.task.id);
+        runWithConcurrency(
+          group.rows.map((row) => row.task.id),
+          3,
+          (taskId) => ensureRowData(taskId),
+        );
       }
     });
   });
@@ -2487,7 +2510,14 @@ async function handleOmniSubmit(event) {
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    tag === "BUTTON" ||
+    tag === "A" ||
+    el.isContentEditable
+  );
 }
 
 function moveFocus(delta) {
@@ -2613,7 +2643,7 @@ async function refreshAll() {
     }
     await Promise.all([bulkLoadSteps(true), bulkLoadRefs(true)]);
     const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
-    await Promise.all(expandedIds.map((id) => ensureRowData(id)));
+    await runWithConcurrency(expandedIds, 3, (id) => ensureRowData(id));
     renderAll();
     renderSyncIndicator(true);
   } catch (error) {
