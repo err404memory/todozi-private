@@ -2606,8 +2606,10 @@ async function refreshAll() {
     state.taskSteps = {};
     state.taskRefs = {};
     state.taskGit = {};
-    if (!state.selectedTaskId || !findTask(state.selectedTaskId) || taskIsDeleted(findTask(state.selectedTaskId))) {
-      state.selectedTaskId = allTasks()[0]?.id || null;
+    const selected = state.selectedTaskId ? findTask(state.selectedTaskId) : null;
+    const inScope = selected && !taskIsDeleted(selected) && scopedTasks().some((task) => task.id === state.selectedTaskId);
+    if (!inScope) {
+      state.selectedTaskId = scopedTasks()[0]?.id || null;
     }
     await Promise.all([bulkLoadSteps(true), bulkLoadRefs(true)]);
     const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
