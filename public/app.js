@@ -361,7 +361,9 @@ async function api(path, options = {}) {
 
   if (!response.ok) {
     const detail = data?.error || response.statusText;
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.confirmedFailure = true;
+    throw error;
   }
 
   return data;
@@ -1421,8 +1423,37 @@ function renderDeleteConfirm(task) {
   `;
 }
 
+function sameIdSet(a, b) {
+  const setA = new Set(a);
+  const setB = new Set(b);
+  if (setA.size !== setB.size) return false;
+  for (const id of setA) if (!setB.has(id)) return false;
+  return true;
+}
+
 async function performDelete(task, mode) {
   const impact = computeDeleteImpact(task);
+  const dependentUpdates = impact.dependents.map((dep) => {
+    const nextDeps =
+      mode === "unlink"
+        ? (dep.dependencies || []).filter((id) => id !== task.id)
+        : [
+            ...new Set(
+              (dep.dependencies || [])
+                .map((id) => (id === task.id ? impact.primaryOwnDependency : id))
+                .filter(Boolean),
+            ),
+          ];
+    const restoredId = mode === "unlink" ? null : impact.primaryOwnDependency || null;
+    return {
+      id: dep.id,
+      removedId: task.id,
+      restoredId,
+      hadPreexistingRestoredId: !!(restoredId && (dep.dependencies || []).includes(restoredId)),
+      resultDependencies: nextDeps,
+    };
+  });
+
   const snapshot = {
     id: `tomb_${Date.now().toString(36)}`,
     taskId: task.id,
@@ -1432,15 +1463,7 @@ async function performDelete(task, mode) {
     axisSnapshot: fieldsForTask(task),
     restore: {
       previousStatus: formatStatus(task),
-      dependents: impact.dependents.map((dep) => {
-        const restoredId = mode === "unlink" ? null : impact.primaryOwnDependency || null;
-        return {
-          id: dep.id,
-          removedId: task.id,
-          restoredId,
-          hadPreexistingRestoredId: !!(restoredId && (dep.dependencies || []).includes(restoredId)),
-        };
-      }),
+      dependents: dependentUpdates,
     },
   };
 
@@ -1456,22 +1479,12 @@ async function performDelete(task, mode) {
     taskMarkedDeleted = true;
 
     await Promise.all(
-      impact.dependents.map((dependent) => {
-        const nextDeps =
-          mode === "unlink"
-            ? (dependent.dependencies || []).filter((id) => id !== task.id)
-            : [
-                ...new Set(
-                  (dependent.dependencies || [])
-                    .map((id) => (id === task.id ? impact.primaryOwnDependency : id))
-                    .filter(Boolean),
-                ),
-              ];
-        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+      dependentUpdates.map((dependent) =>
+        api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
-          body: JSON.stringify({ dependencies: nextDeps }),
-        });
-      }),
+          body: JSON.stringify({ dependencies: dependent.resultDependencies }),
+        }),
+      ),
     );
 
     state.confirmDeleteTaskId = null;
@@ -1479,7 +1492,7 @@ async function performDelete(task, mode) {
     await refreshAll();
     setMessage(`Deleted ${task.id}.`);
   } catch (error) {
-    if (!taskMarkedDeleted) {
+    if (!taskMarkedDeleted && error.confirmedFailure) {
       viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== snapshot.id);
       saveViewState();
     }
@@ -1499,16 +1512,19 @@ async function undoDelete(tombId) {
     await Promise.all(
       snapshot.restore.dependents.map((dependent) => {
         const current = findTask(dependent.id);
-        let nextDeps = [...(current?.dependencies || [])];
-        if (dependent.restoredId && !dependent.hadPreexistingRestoredId) {
-          const idx = nextDeps.indexOf(dependent.restoredId);
+        const currentDeps = [...(current?.dependencies || [])];
+        const editedSinceDelete = !sameIdSet(currentDeps, dependent.resultDependencies || []);
+        let nextDeps;
+        if (!editedSinceDelete && dependent.restoredId && !dependent.hadPreexistingRestoredId) {
+          const idx = currentDeps.indexOf(dependent.restoredId);
+          nextDeps = [...currentDeps];
           if (idx !== -1) {
             nextDeps[idx] = dependent.removedId;
           } else if (!nextDeps.includes(dependent.removedId)) {
             nextDeps.push(dependent.removedId);
           }
-        } else if (!nextDeps.includes(dependent.removedId)) {
-          nextDeps.push(dependent.removedId);
+        } else {
+          nextDeps = currentDeps.includes(dependent.removedId) ? currentDeps : [...currentDeps, dependent.removedId];
         }
         return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
@@ -1682,6 +1698,8 @@ function renderViews() {
       const saved = viewState.savedViews.find((view) => view.id === button.dataset.savedView);
       if (!saved) return;
       state.selectedView = null;
+      state.selectedProjectScope = "all";
+      state.searchResults = null;
       viewState.axis = saved.axis;
       viewState.hideRules = { ...saved.hideRules };
       saveViewState();
@@ -2726,7 +2744,10 @@ function wireEvents() {
     renderTaskStream();
   });
   elements.unfoldAllBtn.addEventListener("click", () => {
-    viewState.foldedGroups = {};
+    const prefix = `${viewState.axis}::`;
+    for (const groupId of Object.keys(viewState.foldedGroups)) {
+      if (groupId.startsWith(prefix)) delete viewState.foldedGroups[groupId];
+    }
     saveViewState();
     renderTaskStream();
   });
