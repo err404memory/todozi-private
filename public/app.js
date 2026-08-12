@@ -1700,6 +1700,10 @@ function renderProjects() {
   elements.projectList.querySelectorAll("[data-project]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedProjectScope = button.dataset.project;
+      const selected = state.selectedTaskId ? findTask(state.selectedTaskId) : null;
+      if (!selected || (state.selectedProjectScope !== "all" && formatTaskProject(selected) !== state.selectedProjectScope)) {
+        state.selectedTaskId = null;
+      }
       renderAll();
     });
   });
