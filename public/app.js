@@ -2718,6 +2718,30 @@ async function refreshAll() {
   try {
     const [bootstrap, platform] = await Promise.all([api("/api/bootstrap"), api("/api/platform")]);
     if (myGeneration !== refreshGeneration) return;
+
+    // /api/bootstrap and /api/platform return HTTP 200 even when some of the upstream
+    // requests they fan out to failed — the failure shows up as a per-field error map,
+    // with the field itself defaulting to empty. Trusting those fields at face value
+    // would silently blank out good data and still claim we're in sync.
+    const bootstrapErrors = bootstrap?.errors || {};
+    const platformErrors = platform?.errors || {};
+    if (state.bootstrap) {
+      if (bootstrapErrors.tasks) bootstrap.tasks = state.bootstrap.tasks;
+      if (bootstrapErrors.projects || bootstrapErrors.tasks) {
+        bootstrap.projects = state.bootstrap.projects;
+        bootstrap.rawProjects = state.bootstrap.rawProjects;
+      }
+      if (bootstrapErrors.activeQueue) bootstrap.activeQueue = state.bootstrap.activeQueue;
+      if (bootstrapErrors.analytics) bootstrap.analytics = state.bootstrap.analytics;
+    }
+    if (state.platform?.data && platform?.data) {
+      for (const key of Object.keys(platformErrors)) {
+        if (platformErrors[key]) platform.data[key] = state.platform.data[key];
+      }
+    }
+    const hadPartialFailure =
+      Object.values(bootstrapErrors).some(Boolean) || Object.values(platformErrors).some(Boolean);
+
     state.bootstrap = bootstrap;
     state.platform = platform;
     invalidateRelationshipCache();
@@ -2746,7 +2770,16 @@ async function refreshAll() {
     await runWithConcurrency(expandedIds, 3, (id) => ensureRowData(id));
     if (myGeneration !== refreshGeneration) return;
     renderAll();
-    renderSyncIndicator(true);
+    renderSyncIndicator(!hadPartialFailure);
+    if (hadPartialFailure) {
+      const failedKeys = [
+        ...Object.entries(bootstrapErrors),
+        ...Object.entries(platformErrors),
+      ]
+        .filter(([, message]) => message)
+        .map(([key]) => key);
+      setMessage(`Refresh partially failed (${failedKeys.join(", ")}) — showing last known data for those.`, "error");
+    }
   } catch (error) {
     if (myGeneration !== refreshGeneration) return;
     setMessage(`Refresh failed: ${error.message}`, "error");
