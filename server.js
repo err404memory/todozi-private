@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 
 const ROOT_DIR = __dirname;
@@ -21,6 +22,8 @@ const config = {
   todoziReadKey: process.env.TODOZI_READ_KEY?.trim() || null,
   todoziAdminKey: process.env.TODOZI_ADMIN_KEY?.trim() || null,
   timeoutMs: Number(process.env.TODOZI_TIMEOUT_SECONDS || "20") * 1000,
+  manageAuthUser: process.env.MANAGE_AUTH_USER?.trim() || null,
+  manageAuthPass: process.env.MANAGE_AUTH_PASS?.trim() || null,
 };
 
 const MIME_TYPES = {
@@ -96,6 +99,53 @@ function authHeaders(useAdmin = false) {
   }
 
   return headers;
+}
+
+function safeEqual(a, b) {
+  const bufA = crypto.createHash("sha256").update(String(a)).digest();
+  const bufB = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function isAuthorized(req) {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+
+  let decoded;
+  try {
+    decoded = Buffer.from(match[1], "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+
+  const separatorIndex = decoded.indexOf(":");
+  if (separatorIndex === -1) return false;
+
+  const user = decoded.slice(0, separatorIndex);
+  const pass = decoded.slice(separatorIndex + 1);
+  return safeEqual(user, config.manageAuthUser) && safeEqual(pass, config.manageAuthPass);
+}
+
+function requireAuth(req, res) {
+  if (!config.manageAuthUser || !config.manageAuthPass) {
+    // No credentials configured: fail open rather than lock the operator out of an
+    // existing deployment that hasn't set MANAGE_AUTH_USER/PASS yet. The startup log
+    // warns loudly about this so it isn't silently insecure.
+    return true;
+  }
+
+  if (isAuthorized(req)) {
+    return true;
+  }
+
+  res.writeHead(401, {
+    "WWW-Authenticate": 'Basic realm="todozi-manage"',
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  res.end(JSON.stringify({ error: "Authentication required" }));
+  return false;
 }
 
 async function todoziRequest(method, route, { body = undefined, useAdmin = false } = {}) {
@@ -904,6 +954,8 @@ async function handleApi(req, res, pathname, query) {
 
 async function requestHandler(req, res) {
   try {
+    if (!requireAuth(req, res)) return;
+
     const url = new URL(req.url, `http://${req.headers.host || `${config.host}:${config.port}`}`);
     const { pathname, searchParams } = url;
 
@@ -948,4 +1000,10 @@ const server = http.createServer((req, res) => {
 server.listen(config.port, config.host, () => {
   console.log(`todozi-manage listening on http://${config.host}:${config.port}`);
   console.log(`todozi backend: ${config.todoziBaseUrl}`);
+  if (!config.manageAuthUser || !config.manageAuthPass) {
+    console.warn(
+      "WARNING: MANAGE_AUTH_USER/MANAGE_AUTH_PASS are not set — todozi-manage is serving " +
+        "every route, including all /api/* routes, with no authentication.",
+    );
+  }
 });
