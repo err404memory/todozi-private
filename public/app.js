@@ -754,6 +754,8 @@ async function ensureRowData(taskId) {
     }
   }
 
+  if (refreshGeneration !== startGeneration) return;
+
   if (!state.taskGit[taskId]) {
     state.taskGit[taskId] = { loading: true };
     renderTaskStream();
@@ -1455,7 +1457,10 @@ async function performDelete(task, mode) {
       id: dep.id,
       removedId: task.id,
       restoredId,
-      hadPreexistingRestoredId: !!(restoredId && (dep.dependencies || []).includes(restoredId)),
+      // Computed from a fresh fetch right before the dependency rewrite below, not from
+      // this pre-delete snapshot — a stale value here would make undo wrongly strip an
+      // id the dependent legitimately gained (or kept) between snapshot and rewrite.
+      hadPreexistingRestoredId: false,
     };
   });
 
@@ -1491,6 +1496,7 @@ async function performDelete(task, mode) {
       dependentMeta.map(async (dependent) => {
         const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
         const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
+        dependent.hadPreexistingRestoredId = !!(dependent.restoredId && freshDeps.includes(dependent.restoredId));
         const nextDeps =
           mode === "unlink"
             ? freshDeps.filter((id) => id !== task.id)
@@ -1501,6 +1507,7 @@ async function performDelete(task, mode) {
         });
       }),
     );
+    saveViewState();
 
     state.confirmDeleteTaskId = null;
     state.selectedTaskId = null;
@@ -1516,12 +1523,11 @@ async function performDelete(task, mode) {
   }
 }
 
-const undosInFlight = new Set();
-
 async function undoDelete(tombId) {
   const snapshot = viewState.tombstones.find((tomb) => tomb.id === tombId);
   if (!snapshot) return;
-  undosInFlight.add(tombId);
+  snapshot.undoInProgress = true;
+  saveViewState();
   try {
     await api(`/api/tasks/${encodeURIComponent(snapshot.taskId)}`, {
       method: "PUT",
@@ -1546,14 +1552,14 @@ async function undoDelete(tombId) {
       }),
     );
     viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== tombId);
-    undosInFlight.delete(tombId);
     saveViewState();
     await refreshAll();
     setMessage(`Restored ${snapshot.taskId}.`);
   } catch (error) {
-    // Leave tombId in undosInFlight: if the status PUT already succeeded but a dependent
-    // rewrite failed, the tombstone is still the only retry path and must survive future
-    // refreshes pruning it just because the task itself now looks live.
+    // Leave snapshot.undoInProgress set: if the status PUT already succeeded but a
+    // dependent rewrite failed, the tombstone is still the only retry path and must
+    // survive future refreshes (and page reloads, since this is persisted) pruning it
+    // just because the task itself now looks live.
     setMessage(`Undo failed: ${error.message}`, "error");
   }
 }
@@ -1720,6 +1726,7 @@ function renderViews() {
       state.searchResults = null;
       viewState.axis = saved.axis;
       viewState.hideRules = { ...saved.hideRules };
+      viewState.revealedResidues = {};
       saveViewState();
       renderAll();
     });
@@ -2337,10 +2344,14 @@ async function handleStepsSubmit(event) {
   const task = findTask(state.selectedTaskId);
   if (!task) return;
   const form = event.currentTarget;
-  const lines = String(form.elements.steps.value || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = [
+    ...new Set(
+      String(form.elements.steps.value || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    ),
+  ];
   const summaryValue = form.elements.summary.value;
   try {
     await enqueueTaskWrite(task.id, async () => {
@@ -2490,17 +2501,21 @@ async function handleOmniSubmit(event) {
           priority: "medium",
         }),
       });
+      if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
       await refreshAll();
+      if (myGeneration !== omniGeneration) return;
       setMessage("Task captured.");
       return;
     }
     if (ideaMatch) {
       await api("/api/ideas", { method: "POST", body: JSON.stringify({ idea: ideaMatch[1] }) });
+      if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
       await refreshAll();
+      if (myGeneration !== omniGeneration) return;
       setMessage("Idea captured.");
       return;
     }
@@ -2514,9 +2529,11 @@ async function handleOmniSubmit(event) {
           severity: "medium",
         }),
       });
+      if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
       await refreshAll();
+      if (myGeneration !== omniGeneration) return;
       setMessage("Error logged.");
       return;
     }
@@ -2528,9 +2545,11 @@ async function handleOmniSubmit(event) {
       };
       if (state.selectedProjectScope !== "all") payload.project_id = state.selectedProjectScope;
       await api("/api/queue/plan", { method: "POST", body: JSON.stringify(payload) });
+      if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
       await refreshAll();
+      if (myGeneration !== omniGeneration) return;
       setMessage("Queue item planned.");
       return;
     }
@@ -2640,19 +2659,21 @@ function handleGlobalKeydown(event) {
 async function bulkLoadSteps(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
   await Promise.all(
-    tasks.map(async (task) => {
-      if (!force && state.taskSteps[task.id]?.data) return;
-      if (generation !== refreshGeneration) return;
-      state.taskSteps[task.id] = { loading: true };
-      try {
-        const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
+    tasks.map((task) =>
+      enqueueTaskWrite(task.id, async () => {
+        if (!force && state.taskSteps[task.id]?.data) return;
         if (generation !== refreshGeneration) return;
-        state.taskSteps[task.id] = { data };
-      } catch (error) {
-        if (generation !== refreshGeneration) return;
-        state.taskSteps[task.id] = { error: error.message };
-      }
-    }),
+        state.taskSteps[task.id] = { loading: true };
+        try {
+          const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
+          if (generation !== refreshGeneration) return;
+          state.taskSteps[task.id] = { data };
+        } catch (error) {
+          if (generation !== refreshGeneration) return;
+          state.taskSteps[task.id] = { error: error.message };
+        }
+      }),
+    ),
   );
 }
 
@@ -2696,7 +2717,7 @@ async function refreshAll() {
       return !rawTask || taskIsDeleted(rawTask);
     };
     const keptTombstones = viewState.tombstones.filter(
-      (tomb) => undosInFlight.has(tomb.id) || stillDeleted(tomb.taskId),
+      (tomb) => tomb.undoInProgress || stillDeleted(tomb.taskId),
     );
     if (keptTombstones.length !== viewState.tombstones.length) {
       viewState.tombstones = keptTombstones;
