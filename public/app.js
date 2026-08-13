@@ -1497,6 +1497,11 @@ async function performDelete(task, mode) {
         const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
         const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
         dependent.hadPreexistingRestoredId = !!(dependent.restoredId && freshDeps.includes(dependent.restoredId));
+        // Persist per-dependent, before this dependent's own PUT: if a later dependent in
+        // this batch fails, Promise.all rejects and the catch block never reaches the
+        // post-batch save, so any correction not saved here would silently revert to the
+        // `false` default written when the tombstone was first created.
+        saveViewState();
         const nextDeps =
           mode === "unlink"
             ? freshDeps.filter((id) => id !== task.id)
@@ -1507,7 +1512,6 @@ async function performDelete(task, mode) {
         });
       }),
     );
-    saveViewState();
 
     state.confirmDeleteTaskId = null;
     state.selectedTaskId = null;
