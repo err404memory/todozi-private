@@ -1306,11 +1306,15 @@ async function handleRowStepCheck(event) {
 async function addDependency(taskId, depId) {
   const task = findTask(taskId);
   if (!task || taskId === depId) return;
-  const next = [...new Set([...(task.dependencies || []), depId])];
   try {
-    await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
-      method: "PUT",
-      body: JSON.stringify({ dependencies: next }),
+    await enqueueTaskWrite(taskId, async () => {
+      const fresh = await api(`/api/tasks/${encodeURIComponent(taskId)}`);
+      const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
+      const next = [...new Set([...freshDeps, depId])];
+      await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ dependencies: next }),
+      });
     });
     await refreshAll();
     setMessage(`${depId} now blocks ${taskId}.`);
@@ -1322,11 +1326,15 @@ async function addDependency(taskId, depId) {
 async function removeDependency(taskId, depId) {
   const task = findTask(taskId);
   if (!task) return;
-  const next = (task.dependencies || []).filter((id) => id !== depId);
   try {
-    await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
-      method: "PUT",
-      body: JSON.stringify({ dependencies: next }),
+    await enqueueTaskWrite(taskId, async () => {
+      const fresh = await api(`/api/tasks/${encodeURIComponent(taskId)}`);
+      const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
+      const next = freshDeps.filter((id) => id !== depId);
+      await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ dependencies: next }),
+      });
     });
     await refreshAll();
     setMessage(`Unlinked ${depId} from ${taskId}.`);
