@@ -550,7 +550,7 @@ function scopedTasks() {
 }
 
 function tombstoneInScope(tomb) {
-  if (state.searchResults) return false;
+  if (state.searchResults && !state.searchResults.some((task) => task.id === tomb.taskId)) return false;
   if (state.selectedProjectScope !== "all" && tomb.axisSnapshot.project !== state.selectedProjectScope) {
     return false;
   }
@@ -1268,13 +1268,16 @@ async function handleRowStepCheck(event) {
   const checked = checkbox.checked;
   const task = findTask(taskId);
   if (!task) return;
+  const stepTextAtClick = normalizeSteps(state.taskSteps[taskId]?.data?.steps)[stepIndex]?.text;
+  if (stepTextAtClick === undefined) return;
   checkbox.disabled = true;
   try {
     await enqueueTaskWrite(taskId, async () => {
       const stepRecord = state.taskSteps[taskId]?.data;
       const steps = normalizeSteps(stepRecord?.steps);
-      if (!steps[stepIndex]) return;
-      steps[stepIndex] = { ...steps[stepIndex], done: checked };
+      const idx = steps.findIndex((step) => step.text === stepTextAtClick);
+      if (idx === -1) return;
+      steps[idx] = { ...steps[idx], done: checked };
       const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/steps`, {
         method: "PUT",
         body: JSON.stringify({
@@ -2783,6 +2786,7 @@ function wireEvents() {
   elements.omniForm.addEventListener("submit", handleOmniSubmit);
   elements.omniInput.addEventListener("input", () => {
     if (!elements.omniInput.value.trim()) {
+      omniGeneration += 1;
       state.searchResults = null;
       renderTaskStream();
     }
