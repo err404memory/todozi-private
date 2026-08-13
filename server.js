@@ -306,15 +306,34 @@ function readTaskRefs(taskId) {
   if (!fs.existsSync(filePath)) {
     return defaultRefs(taskId);
   }
+
+  const raw = fs.readFileSync(filePath, "utf8");
+  let parsed;
+  let invalid = false;
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.refs)) {
-      return defaultRefs(taskId);
-    }
-    return parsed;
-  } catch (error) {
-    return defaultRefs(taskId);
+    parsed = JSON.parse(raw);
+    invalid = !parsed || typeof parsed !== "object" || !Array.isArray(parsed.refs);
+  } catch {
+    invalid = true;
   }
+
+  if (invalid) {
+    // A file that exists but fails to parse is not the same as no refs ever having been
+    // saved. Treating it as defaultRefs() here would let writeTaskRefs() below merge one
+    // new ref into an empty base and silently overwrite whatever was recoverable in the
+    // corrupted file. Quarantine it instead, so the next write starts from a clean slate
+    // (existsSync is now false) without destroying the original bytes, and surface the
+    // problem to the caller rather than pretending the read succeeded.
+    const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
+    try {
+      fs.renameSync(filePath, quarantinePath);
+    } catch {
+      // best-effort quarantine; still throw below regardless of whether this succeeded
+    }
+    throw new Error(`Refs file for ${taskId} was corrupted; quarantined as ${path.basename(quarantinePath)}.`);
+  }
+
+  return parsed;
 }
 
 function normalizeRef(ref, index) {
