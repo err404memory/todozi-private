@@ -2668,44 +2668,42 @@ function handleGlobalKeydown(event) {
 
 /* ---------- boot ---------- */
 
+const BULK_LOAD_CONCURRENCY = 6;
+
 async function bulkLoadSteps(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
-  await Promise.all(
-    tasks.map((task) =>
-      enqueueTaskWrite(task.id, async () => {
-        if (!force && state.taskSteps[task.id]?.data) return;
+  await runWithConcurrency(tasks, BULK_LOAD_CONCURRENCY, (task) =>
+    enqueueTaskWrite(task.id, async () => {
+      if (!force && state.taskSteps[task.id]?.data) return;
+      if (generation !== refreshGeneration) return;
+      state.taskSteps[task.id] = { loading: true };
+      try {
+        const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
         if (generation !== refreshGeneration) return;
-        state.taskSteps[task.id] = { loading: true };
-        try {
-          const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/steps`);
-          if (generation !== refreshGeneration) return;
-          state.taskSteps[task.id] = { data };
-        } catch (error) {
-          if (generation !== refreshGeneration) return;
-          state.taskSteps[task.id] = { error: error.message };
-        }
-      }),
-    ),
+        state.taskSteps[task.id] = { data };
+      } catch (error) {
+        if (generation !== refreshGeneration) return;
+        state.taskSteps[task.id] = { error: error.message };
+      }
+    }),
   );
 }
 
 async function bulkLoadRefs(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
-  await Promise.all(
-    tasks.map(async (task) => {
-      if (!force && state.taskRefs[task.id]?.data) return;
+  await runWithConcurrency(tasks, BULK_LOAD_CONCURRENCY, async (task) => {
+    if (!force && state.taskRefs[task.id]?.data) return;
+    if (generation !== refreshGeneration) return;
+    state.taskRefs[task.id] = { loading: true };
+    try {
+      const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
       if (generation !== refreshGeneration) return;
-      state.taskRefs[task.id] = { loading: true };
-      try {
-        const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
-        if (generation !== refreshGeneration) return;
-        state.taskRefs[task.id] = { data };
-      } catch (error) {
-        if (generation !== refreshGeneration) return;
-        state.taskRefs[task.id] = { error: error.message };
-      }
-    }),
-  );
+      state.taskRefs[task.id] = { data };
+    } catch (error) {
+      if (generation !== refreshGeneration) return;
+      state.taskRefs[task.id] = { error: error.message };
+    }
+  });
 }
 
 let refreshGeneration = 0;
