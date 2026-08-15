@@ -181,13 +181,14 @@ async function todoziRequest(method, route, { body = undefined, useAdmin = false
 }
 
 async function resolveTaskProject(taskId) {
-  try {
-    const task = await todoziRequest("GET", `/tasks/${encodeURIComponent(taskId)}`);
-    const project = task?.parent_project || task?.project || task?.project_name;
-    return typeof project === "string" && project.trim() ? project.trim() : "general";
-  } catch (error) {
-    return "general";
-  }
+  // "general" is only a valid answer for a task that was actually fetched and genuinely has
+  // no project set. A failed lookup (timeout, upstream error, etc.) must propagate instead of
+  // silently defaulting here — the callers use this to scope which repo to run git/file
+  // operations against, so defaulting a lookup failure to "general" would make git status and
+  // file peeks silently operate on the wrong repo for any task outside the general project.
+  const task = await todoziRequest("GET", `/tasks/${encodeURIComponent(taskId)}`);
+  const project = task?.parent_project || task?.project || task?.project_name;
+  return typeof project === "string" && project.trim() ? project.trim() : "general";
 }
 
 async function readJsonBody(req) {

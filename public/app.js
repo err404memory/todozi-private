@@ -1525,11 +1525,26 @@ async function performDelete(task, mode) {
           mode === "unlink"
             ? freshDeps.filter((id) => id !== task.id)
             : [...new Set(freshDeps.map((id) => (id === task.id ? impact.primaryOwnDependency : id)).filter(Boolean))];
-        await api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
-          method: "PUT",
-          body: JSON.stringify({ dependencies: nextDeps }),
-        });
-        dependent.rewritten = true;
+        try {
+          await api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+            method: "PUT",
+            body: JSON.stringify({ dependencies: nextDeps }),
+          });
+          dependent.rewritten = true;
+        } catch (error) {
+          if (error.confirmedFailure) {
+            // The server explicitly rejected the write, so it definitely never applied —
+            // rewritten correctly stays false and undo will leave this dependent alone.
+            throw error;
+          }
+          // Ambiguous network-level failure: the write may have actually reached the server
+          // and applied even though we never got a confirming response. Mark it rewritten
+          // anyway so a later undo attempts to reconcile it — safe even if the write never
+          // applied, since undo's rewrite is a no-op against dependencies that never changed.
+          dependent.rewritten = true;
+          saveViewState();
+          throw error;
+        }
         saveViewState();
       }),
     );
