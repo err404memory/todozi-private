@@ -743,7 +743,7 @@ async function ensureRowData(taskId) {
   if (!task) return;
   const startGeneration = refreshGeneration;
 
-  if (!state.taskRefs[taskId]) {
+  if (!state.taskRefs[taskId]?.data && !state.taskRefs[taskId]?.error) {
     state.taskRefs[taskId] = { loading: true };
     renderTaskStream();
     try {
@@ -756,7 +756,7 @@ async function ensureRowData(taskId) {
 
   if (refreshGeneration !== startGeneration) return;
 
-  if (!state.taskGit[taskId]) {
+  if (!state.taskGit[taskId]?.data && !state.taskGit[taskId]?.error) {
     state.taskGit[taskId] = { loading: true };
     renderTaskStream();
     try {
@@ -1469,6 +1469,11 @@ async function performDelete(task, mode) {
       // this pre-delete snapshot — a stale value here would make undo wrongly strip an
       // id the dependent legitimately gained (or kept) between snapshot and rewrite.
       hadPreexistingRestoredId: false,
+      // Only flipped to true once this dependent's dependency-array PUT has actually
+      // completed. If the pre-write GET or the PUT itself fails, this dependent's
+      // dependencies were never touched by the delete, so undo must leave it alone rather
+      // than guessing based on a hadPreexistingRestoredId that was never actually computed.
+      rewritten: false,
     };
   });
 
@@ -1500,26 +1505,38 @@ async function performDelete(task, mode) {
     });
     taskMarkedDeleted = true;
 
-    await Promise.all(
+    // Promise.allSettled, not Promise.all: if one dependent's request rejects quickly while
+    // another is still in flight, Promise.all would reject immediately and let the catch
+    // block expose the tombstone for undo while that other rewrite is still running —
+    // undo's own PUT for that dependent could then race the still-in-flight delete PUT.
+    // Waiting for every started request to settle first closes that window.
+    const settled = await Promise.allSettled(
       dependentMeta.map(async (dependent) => {
         const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
         const freshDeps = Array.isArray(fresh?.dependencies) ? fresh.dependencies : [];
         dependent.hadPreexistingRestoredId = !!(dependent.restoredId && freshDeps.includes(dependent.restoredId));
         // Persist per-dependent, before this dependent's own PUT: if a later dependent in
-        // this batch fails, Promise.all rejects and the catch block never reaches the
-        // post-batch save, so any correction not saved here would silently revert to the
-        // `false` default written when the tombstone was first created.
-        saveViewState();
+        // this batch fails, waiting for settlement still means this correction was already
+        // durable the moment it was computed, regardless of what happens to siblings.
+        if (!saveViewState()) {
+          throw new Error("Could not save undo record (local storage unavailable); dependency update aborted.");
+        }
         const nextDeps =
           mode === "unlink"
             ? freshDeps.filter((id) => id !== task.id)
             : [...new Set(freshDeps.map((id) => (id === task.id ? impact.primaryOwnDependency : id)).filter(Boolean))];
-        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+        await api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
           method: "PUT",
           body: JSON.stringify({ dependencies: nextDeps }),
         });
+        dependent.rewritten = true;
+        saveViewState();
       }),
     );
+    const firstRejection = settled.find((result) => result.status === "rejected");
+    if (firstRejection) {
+      throw firstRejection.reason;
+    }
 
     state.confirmDeleteTaskId = null;
     state.selectedTaskId = null;
@@ -1539,30 +1556,43 @@ async function undoDelete(tombId) {
   const snapshot = viewState.tombstones.find((tomb) => tomb.id === tombId);
   if (!snapshot) return;
   snapshot.undoInProgress = true;
-  saveViewState();
+  if (!saveViewState()) {
+    snapshot.undoInProgress = false;
+    setMessage("Undo failed: could not save an undo-in-progress marker (local storage unavailable).", "error");
+    return;
+  }
   try {
     await api(`/api/tasks/${encodeURIComponent(snapshot.taskId)}`, {
       method: "PUT",
       body: JSON.stringify({ status: snapshot.restore.previousStatus }),
     });
-    await Promise.all(
-      snapshot.restore.dependents.map(async (dependent) => {
-        const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
-        const currentDeps = Array.isArray(fresh?.dependencies) ? [...fresh.dependencies] : [];
-        // Drop the id the delete introduced (unless it was already there independently of
-        // the delete), then add the removed task's id back — this is safe whether or not
-        // the dependent was edited elsewhere in the meantime, since it only ever touches
-        // the one id the delete itself changed.
-        const nextDeps = currentDeps.filter(
-          (id) => !(dependent.restoredId && id === dependent.restoredId && !dependent.hadPreexistingRestoredId),
-        );
-        if (!nextDeps.includes(dependent.removedId)) nextDeps.push(dependent.removedId);
-        return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
-          method: "PUT",
-          body: JSON.stringify({ dependencies: nextDeps }),
-        });
-      }),
+    // Only dependents whose dependency array the delete actually rewrote (dependent.rewritten)
+    // have anything to undo — for one whose pre-write GET or PUT failed, the delete never
+    // touched its dependencies, so touching them here would be guessing, not undoing.
+    const settled = await Promise.allSettled(
+      snapshot.restore.dependents
+        .filter((dependent) => dependent.rewritten)
+        .map(async (dependent) => {
+          const fresh = await api(`/api/tasks/${encodeURIComponent(dependent.id)}`);
+          const currentDeps = Array.isArray(fresh?.dependencies) ? [...fresh.dependencies] : [];
+          // Drop the id the delete introduced (unless it was already there independently of
+          // the delete), then add the removed task's id back — this is safe whether or not
+          // the dependent was edited elsewhere in the meantime, since it only ever touches
+          // the one id the delete itself changed.
+          const nextDeps = currentDeps.filter(
+            (id) => !(dependent.restoredId && id === dependent.restoredId && !dependent.hadPreexistingRestoredId),
+          );
+          if (!nextDeps.includes(dependent.removedId)) nextDeps.push(dependent.removedId);
+          return api(`/api/tasks/${encodeURIComponent(dependent.id)}`, {
+            method: "PUT",
+            body: JSON.stringify({ dependencies: nextDeps }),
+          });
+        }),
     );
+    const firstRejection = settled.find((result) => result.status === "rejected");
+    if (firstRejection) {
+      throw firstRejection.reason;
+    }
     viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== tombId);
     saveViewState();
     await refreshAll();
@@ -2513,22 +2543,25 @@ async function handleOmniSubmit(event) {
           priority: "medium",
         }),
       });
+      // Always refresh once the write has succeeded, even if a newer omnibar submission has
+      // already superseded this one — otherwise the new task exists on the server but never
+      // shows up until some unrelated refresh happens. Only the cosmetic bits (clearing the
+      // input the user may have already started retyping, showing our own success message)
+      // are gated on still being the current generation.
+      const refreshed = await refreshAll();
       if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
-      await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      setMessage("Task captured.");
+      if (refreshed) setMessage("Task captured.");
       return;
     }
     if (ideaMatch) {
       await api("/api/ideas", { method: "POST", body: JSON.stringify({ idea: ideaMatch[1] }) });
+      const refreshed = await refreshAll();
       if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
-      await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      setMessage("Idea captured.");
+      if (refreshed) setMessage("Idea captured.");
       return;
     }
     if (errMatch) {
@@ -2541,12 +2574,11 @@ async function handleOmniSubmit(event) {
           severity: "medium",
         }),
       });
+      const refreshed = await refreshAll();
       if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
-      await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      setMessage("Error logged.");
+      if (refreshed) setMessage("Error logged.");
       return;
     }
     if (queueMatch) {
@@ -2557,12 +2589,11 @@ async function handleOmniSubmit(event) {
       };
       if (state.selectedProjectScope !== "all") payload.project_id = state.selectedProjectScope;
       await api("/api/queue/plan", { method: "POST", body: JSON.stringify(payload) });
+      const refreshed = await refreshAll();
       if (myGeneration !== omniGeneration) return;
       elements.omniInput.value = "";
       state.searchResults = null;
-      await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      setMessage("Queue item planned.");
+      if (refreshed) setMessage("Queue item planned.");
       return;
     }
 
@@ -2715,7 +2746,7 @@ async function refreshAll() {
   elements.refreshBtn.textContent = "Refreshing...";
   try {
     const [bootstrap, platform] = await Promise.all([api("/api/bootstrap"), api("/api/platform")]);
-    if (myGeneration !== refreshGeneration) return;
+    if (myGeneration !== refreshGeneration) return false;
 
     // /api/bootstrap and /api/platform return HTTP 200 even when some of the upstream
     // requests they fan out to failed — the failure shows up as a per-field error map,
@@ -2734,6 +2765,10 @@ async function refreshAll() {
     }
     if (state.platform?.data && platform?.data) {
       for (const key of Object.keys(platformErrors)) {
+        if (key === "ideas") continue; // collectPlatformData() always merges in local idea
+        // files as a best-effort fallback even when the upstream /ideas GET fails, so its
+        // returned value is already usable — falling back to the stale cached copy here
+        // would hide an idea just captured via /api/ideas until an unrelated full reload.
         if (platformErrors[key]) platform.data[key] = state.platform.data[key];
       }
     }
@@ -2763,10 +2798,10 @@ async function refreshAll() {
       state.selectedTaskId = scopedTasks()[0]?.id || null;
     }
     await Promise.all([bulkLoadSteps(true, myGeneration), bulkLoadRefs(true, myGeneration)]);
-    if (myGeneration !== refreshGeneration) return;
+    if (myGeneration !== refreshGeneration) return false;
     const expandedIds = Object.keys(viewState.expandedRows).filter((id) => viewState.expandedRows[id]);
     await runWithConcurrency(expandedIds, 3, (id) => ensureRowData(id));
-    if (myGeneration !== refreshGeneration) return;
+    if (myGeneration !== refreshGeneration) return false;
     renderAll();
     renderSyncIndicator(!hadPartialFailure);
     if (hadPartialFailure) {
@@ -2777,11 +2812,14 @@ async function refreshAll() {
         .filter(([, message]) => message)
         .map(([key]) => key);
       setMessage(`Refresh partially failed (${failedKeys.join(", ")}) — showing last known data for those.`, "error");
+      return false;
     }
+    return true;
   } catch (error) {
-    if (myGeneration !== refreshGeneration) return;
+    if (myGeneration !== refreshGeneration) return false;
     setMessage(`Refresh failed: ${error.message}`, "error");
     renderSyncIndicator(false);
+    return false;
   } finally {
     if (myGeneration === refreshGeneration) {
       elements.refreshBtn.disabled = false;
