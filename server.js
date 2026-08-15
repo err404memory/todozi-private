@@ -15,7 +15,7 @@ const PROJECT_TASKS_DIR = path.join(TODOZI_DIR, "project_tasks");
 const LEGACY_TASKS_DIR = path.join(TODOZI_DIR, "tasks");
 
 const config = {
-  host: process.env.MANAGE_HOST || "100.75.128.38",
+  host: process.env.MANAGE_HOST || "100.115.124.101",
   port: Number(process.env.MANAGE_PORT || "3044"),
   todoziBaseUrl: normalizeTodoziBaseUrl(process.env.TODOZI_BASE_URL || process.env.TODOZI_BASE),
   todoziApiKey: process.env.TODOZI_API_KEY?.trim() || null,
@@ -56,7 +56,7 @@ function sendText(res, statusCode, body, contentType = "text/plain; charset=utf-
 function normalizeTodoziBaseUrl(value) {
   const trimmed = String(value || "").trim();
   if (!trimmed) {
-    return "http://100.75.128.38:8636";
+    return "http://100.115.124.101:8636";
   }
   return trimmed.replace(/\/api\/?$/, "").replace(/\/+$/, "");
 }

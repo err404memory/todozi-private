@@ -1,6 +1,7 @@
 # todozi-manage
 
-Browser front door for Todozi on satellite/nova.
+Browser front door for Todozi on satellite. (Nova originally hosted this; it has been down
+for an extended, indefinite period, so satellite is now the sole target — see deploy/.)
 
 ## Purpose
 
@@ -15,6 +16,20 @@ Browser front door for Todozi on satellite/nova.
   `slated`-tagged idea below), no longer branded as Todozi. Todozi stays as the backend
   data source; this UI becomes a distinct product on top of it. Not scheduled yet — do
   this after PR #1 merges, not as part of it.
+- **Offline-first local copy + sync (planned, real requirement, not optional).** The whole
+  app currently has a hard dependency on one always-on machine (satellite, previously nova)
+  being reachable — when that machine is down, which has happened for weeks/months at a
+  time, task capture/editing is unavailable for the whole outage and in-progress work gets
+  abandoned. The fix is a genuine offline-first client: local storage of tasks/steps/refs on
+  the device, full read/write while disconnected, and sync-on-reconnect against the real
+  Todozi backend. This is a substantial feature — it needs a conflict-resolution strategy for
+  edits made offline on multiple devices, not just a cache — so treat it like `doorman` was
+  treated: a real design pass (what gets stored locally, what the sync/merge protocol is,
+  what happens to server-only concepts like git status and file refs while offline) before
+  any implementation, rather than bolting it onto the existing redesign PR. Not started.
+  Explicitly ruled out as unnecessary for now: public internet exposure via Tailscale Funnel
+  (the operator is never on someone else's devices, so Tailscale-only access is sufficient
+  once reachable at all) — offline support is the actual problem, not more reachability.
 
 ## Current Status
 
