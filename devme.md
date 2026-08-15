@@ -27,6 +27,17 @@ for an extended, indefinite period, so satellite is now the sole target — see 
   treated: a real design pass (what gets stored locally, what the sync/merge protocol is,
   what happens to server-only concepts like git status and file refs while offline) before
   any implementation, rather than bolting it onto the existing redesign PR. Not started.
+  Directional model to design against: Trilium Notes' sync approach — each installation
+  keeps a full local copy, every mutation is appended to a local changelog with a
+  timestamp, and reconnecting peers just exchange changelog entries in both directions
+  with last-write-wins per entity on timestamp conflict. No CRDT/operational-transform
+  merging — a same-entity edit made offline on two devices while both were disconnected
+  just has the later timestamp win outright. Deliberately simple, proven pattern, good fit
+  for a single-operator tool. Open question this raises for the eventual design pass:
+  Trilium's local copy lives in an installed app's embedded database, not a browser tab —
+  the browser equivalent (IndexedDB) is more fragile (cleared by the user, quota-limited,
+  tied to one browser profile), so whether this stays browser-only or gets a lightweight
+  installed companion is an early decision to make, not an afterthought.
   Explicitly ruled out as unnecessary for now: public internet exposure via Tailscale Funnel
   (the operator is never on someone else's devices, so Tailscale-only access is sufficient
   once reachable at all) — offline support is the actual problem, not more reachability.
