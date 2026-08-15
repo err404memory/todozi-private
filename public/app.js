@@ -2134,6 +2134,11 @@ function renderTaskDetail() {
   detailForm.addEventListener("submit", handleDetailSubmit);
   detailForm.querySelector('[data-action="complete"]').addEventListener("click", () => {
     detailForm.elements.status.value = "done";
+    // Match handleTaskToggle's completion behavior (the checkbox path), which always sets
+    // progress to 100 on completion — otherwise this button persists status:"done" with
+    // whatever partial progress value was already sitting in the form, and the task keeps
+    // showing a partial progress bar despite being marked complete.
+    detailForm.elements.progress.value = "100";
     handleDetailSubmit({ preventDefault() {}, currentTarget: detailForm });
   });
   detailForm.querySelector('[data-action="delete"]').addEventListener("click", () => {
