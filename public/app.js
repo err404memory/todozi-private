@@ -364,7 +364,14 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const detail = data?.error || response.statusText;
     const error = new Error(detail);
-    error.confirmedFailure = true;
+    error.status = response.status;
+    // A 4xx means this server rejected the request outright (bad input, not found, etc.) —
+    // the underlying mutation definitely never applied. A 5xx can originate from this
+    // server's own proxy to the real Todozi backend failing *after* Todozi already applied
+    // the change (its response just got lost on the way back) — a well-formed 500 here does
+    // not confirm the underlying write never happened, so it must not be treated the same as
+    // a definitive rejection.
+    error.confirmedFailure = response.status >= 400 && response.status < 500;
     throw error;
   }
 
@@ -803,14 +810,20 @@ async function removeRef(taskId, refId) {
     setMessage("Refs are still loading — try again in a moment.", "error");
     return;
   }
-  const current = state.taskRefs[taskId].data.refs || [];
-  const nextRefs = current.filter((ref) => ref.id !== refId);
   try {
-    const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
-      method: "PUT",
-      body: JSON.stringify({ refs: nextRefs }),
+    // Queued per task, and reads the current list from state inside the queued closure (not
+    // captured beforehand): two ref add/remove calls fired close together would otherwise
+    // both build their replacement list from the same stale snapshot, and whichever PUT
+    // resolved last would silently undo the other's change.
+    await enqueueTaskWrite(taskId, async () => {
+      const current = state.taskRefs[taskId]?.data?.refs || [];
+      const nextRefs = current.filter((ref) => ref.id !== refId);
+      const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
+        method: "PUT",
+        body: JSON.stringify({ refs: nextRefs }),
+      });
+      state.taskRefs[taskId] = { data };
     });
-    state.taskRefs[taskId] = { data };
     state.openPeeks.delete(peekKey(taskId, refId));
     renderTaskStream();
     if (state.selectedTaskId === taskId) renderTaskDetail();
@@ -830,14 +843,16 @@ async function handleRefAddSubmit(event) {
     return;
   }
   const [rawPath, rawLine] = raw.split(":");
-  const current = state.taskRefs[taskId].data.refs || [];
-  const nextRefs = [...current, { path: rawPath.trim(), line: rawLine ? Number(rawLine) : null, kind: "path" }];
   try {
-    const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
-      method: "PUT",
-      body: JSON.stringify({ refs: nextRefs }),
+    await enqueueTaskWrite(taskId, async () => {
+      const current = state.taskRefs[taskId]?.data?.refs || [];
+      const nextRefs = [...current, { path: rawPath.trim(), line: rawLine ? Number(rawLine) : null, kind: "path" }];
+      const data = await api(`/api/tasks/${encodeURIComponent(taskId)}/refs`, {
+        method: "PUT",
+        body: JSON.stringify({ refs: nextRefs }),
+      });
+      state.taskRefs[taskId] = { data };
     });
-    state.taskRefs[taskId] = { data };
     form.reset();
     renderTaskStream();
     if (state.selectedTaskId === taskId) renderTaskDetail();
@@ -1457,6 +1472,22 @@ function renderDeleteConfirm(task) {
   `;
 }
 
+// Populates the confirm slot directly via innerHTML on just that slot, not a full
+// renderTaskDetail() — showing/dismissing the delete confirmation must never rebuild the
+// rest of the detail form from the unchanged underlying task, or any unsaved edits the user
+// made to title/notes/dependencies/etc. before clicking Delete would silently disappear.
+function showDeleteConfirm(task) {
+  const slot = elements.taskDetail.querySelector("[data-delete-confirm-slot]");
+  if (!slot) return;
+  slot.innerHTML = renderDeleteConfirm(task);
+  slot.querySelector("[data-delete-unlink]")?.addEventListener("click", () => performDelete(task, "unlink"));
+  slot.querySelector("[data-delete-transfer]")?.addEventListener("click", () => performDelete(task, "transfer"));
+  slot.querySelector("[data-delete-cancel]").addEventListener("click", () => {
+    state.confirmDeleteTaskId = null;
+    slot.innerHTML = "";
+  });
+}
+
 async function performDelete(task, mode) {
   const impact = computeDeleteImpact(task);
   const dependentMeta = impact.dependents.map((dep) => {
@@ -2071,7 +2102,7 @@ function renderTaskDetail() {
       </div>
     </form>
 
-    ${state.confirmDeleteTaskId === task.id ? renderDeleteConfirm(task) : ""}
+    <div data-delete-confirm-slot></div>
 
     <form id="steps-form" class="steps-form">
       <div class="panel-header compact">
@@ -2107,20 +2138,19 @@ function renderTaskDetail() {
   });
   detailForm.querySelector('[data-action="delete"]').addEventListener("click", () => {
     state.confirmDeleteTaskId = task.id;
-    renderTaskDetail();
+    showDeleteConfirm(task);
   });
   elements.taskDetail.querySelectorAll("[data-jump-task]").forEach((button) => {
     button.addEventListener("click", () => jumpToTask(button.dataset.jumpTask));
   });
 
-  const confirmBlock = elements.taskDetail.querySelector("[data-delete-confirm]");
-  if (confirmBlock) {
-    confirmBlock.querySelector("[data-delete-unlink]")?.addEventListener("click", () => performDelete(task, "unlink"));
-    confirmBlock.querySelector("[data-delete-transfer]")?.addEventListener("click", () => performDelete(task, "transfer"));
-    confirmBlock.querySelector("[data-delete-cancel]").addEventListener("click", () => {
-      state.confirmDeleteTaskId = null;
-      renderTaskDetail();
-    });
+  // Populate the confirm slot without a full re-render if a background refresh redraws the
+  // whole panel while a confirmation is already showing — but never on the delete-button
+  // click path itself, which calls showDeleteConfirm() directly so unsaved edits elsewhere
+  // in the form (title, notes, dependencies, etc.) aren't wiped out by rebuilding this form
+  // from the unchanged underlying task just to show a confirmation dialog.
+  if (state.confirmDeleteTaskId === task.id) {
+    showDeleteConfirm(task);
   }
 
   const stepsForm = elements.taskDetail.querySelector("#steps-form");
@@ -2771,7 +2801,12 @@ async function refreshAll() {
     const platformErrors = platform?.errors || {};
     if (state.bootstrap) {
       if (bootstrapErrors.tasks) bootstrap.tasks = state.bootstrap.tasks;
-      if (bootstrapErrors.projects || bootstrapErrors.tasks) {
+      // Only fall back to the stale snapshot when BOTH upstream requests failed — the server
+      // derives `projects` from whichever of rawProjects/tasks it actually has fresh, so a
+      // single-sided failure (e.g. /projects down but /tasks fine) still returns a usable,
+      // more-current projects list. Falling back on either failing alone was discarding that
+      // usable data and hiding newly-observed projects until both requests happened to fail.
+      if (bootstrapErrors.projects && bootstrapErrors.tasks) {
         bootstrap.projects = state.bootstrap.projects;
         bootstrap.rawProjects = state.bootstrap.rawProjects;
       }
