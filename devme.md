@@ -41,6 +41,16 @@ for an extended, indefinite period, so satellite is now the sole target — see 
   Explicitly ruled out as unnecessary for now: public internet exposure via Tailscale Funnel
   (the operator is never on someone else's devices, so Tailscale-only access is sufficient
   once reachable at all) — offline support is the actual problem, not more reachability.
+- **Satellite reachability status/monitoring (real requirement, distinct from offline-first
+  above).** When `manage.err404memory.com` doesn't load, the operator currently has no way to
+  tell "satellite is asleep/off" apart from "something is actually broken" — those need
+  different responses (wait/wake the machine vs. debug code). Zero-build stopgap available
+  right now: Tailscale's own admin console (login.tailscale.com/admin/machines) already shows
+  online/offline plus last-seen per device, including satellite — worth checking there before
+  assuming a code problem. If that's not enough (operator wants to be told proactively rather
+  than having to go check a dashboard), a small watchdog/status feature is a real, separate,
+  much smaller project than the offline-first client above — e.g. a periodic reachability
+  ping with a notification on state change. Not started, not designed yet.
 
 ## Current Status
 
