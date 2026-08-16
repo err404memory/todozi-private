@@ -1,23 +1,29 @@
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const { execFile } = require("node:child_process");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const TODOZI_DIR = path.join(process.env.HOME || "/home/ash", ".todozi");
 const STEPS_DIR = path.join(TODOZI_DIR, "steps");
 const IDEAS_DIR = path.join(TODOZI_DIR, "ideas");
+const REFS_DIR = path.join(TODOZI_DIR, "refs");
+const REPO_MAP_PATH = path.join(TODOZI_DIR, "repo-map.json");
 const PROJECT_TASKS_DIR = path.join(TODOZI_DIR, "project_tasks");
 const LEGACY_TASKS_DIR = path.join(TODOZI_DIR, "tasks");
 
 const config = {
-  host: process.env.MANAGE_HOST || "100.75.128.38",
+  host: process.env.MANAGE_HOST || "100.115.124.101",
   port: Number(process.env.MANAGE_PORT || "3044"),
   todoziBaseUrl: normalizeTodoziBaseUrl(process.env.TODOZI_BASE_URL || process.env.TODOZI_BASE),
   todoziApiKey: process.env.TODOZI_API_KEY?.trim() || null,
   todoziReadKey: process.env.TODOZI_READ_KEY?.trim() || null,
   todoziAdminKey: process.env.TODOZI_ADMIN_KEY?.trim() || null,
   timeoutMs: Number(process.env.TODOZI_TIMEOUT_SECONDS || "20") * 1000,
+  manageAuthUser: process.env.MANAGE_AUTH_USER?.trim() || null,
+  manageAuthPass: process.env.MANAGE_AUTH_PASS?.trim() || null,
 };
 
 const MIME_TYPES = {
@@ -50,7 +56,7 @@ function sendText(res, statusCode, body, contentType = "text/plain; charset=utf-
 function normalizeTodoziBaseUrl(value) {
   const trimmed = String(value || "").trim();
   if (!trimmed) {
-    return "http://100.75.128.38:8636";
+    return "http://100.115.124.101:8636";
   }
   return trimmed.replace(/\/api\/?$/, "").replace(/\/+$/, "");
 }
@@ -95,6 +101,53 @@ function authHeaders(useAdmin = false) {
   return headers;
 }
 
+function safeEqual(a, b) {
+  const bufA = crypto.createHash("sha256").update(String(a)).digest();
+  const bufB = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function isAuthorized(req) {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+
+  let decoded;
+  try {
+    decoded = Buffer.from(match[1], "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+
+  const separatorIndex = decoded.indexOf(":");
+  if (separatorIndex === -1) return false;
+
+  const user = decoded.slice(0, separatorIndex);
+  const pass = decoded.slice(separatorIndex + 1);
+  return safeEqual(user, config.manageAuthUser) && safeEqual(pass, config.manageAuthPass);
+}
+
+function requireAuth(req, res) {
+  if (!config.manageAuthUser || !config.manageAuthPass) {
+    // No credentials configured: fail open rather than lock the operator out of an
+    // existing deployment that hasn't set MANAGE_AUTH_USER/PASS yet. The startup log
+    // warns loudly about this so it isn't silently insecure.
+    return true;
+  }
+
+  if (isAuthorized(req)) {
+    return true;
+  }
+
+  res.writeHead(401, {
+    "WWW-Authenticate": 'Basic realm="todozi-manage"',
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  res.end(JSON.stringify({ error: "Authentication required" }));
+  return false;
+}
+
 async function todoziRequest(method, route, { body = undefined, useAdmin = false } = {}) {
   const url = new URL(route, `${config.todoziBaseUrl}/`);
   const init = {
@@ -125,6 +178,17 @@ async function todoziRequest(method, route, { body = undefined, useAdmin = false
   }
 
   return data;
+}
+
+async function resolveTaskProject(taskId) {
+  // "general" is only a valid answer for a task that was actually fetched and genuinely has
+  // no project set. A failed lookup (timeout, upstream error, etc.) must propagate instead of
+  // silently defaulting here — the callers use this to scope which repo to run git/file
+  // operations against, so defaulting a lookup failure to "general" would make git status and
+  // file peeks silently operate on the wrong repo for any task outside the general project.
+  const task = await todoziRequest("GET", `/tasks/${encodeURIComponent(taskId)}`);
+  const project = task?.parent_project || task?.project || task?.project_name;
+  return typeof project === "string" && project.trim() ? project.trim() : "general";
 }
 
 async function readJsonBody(req) {
@@ -223,6 +287,200 @@ function writeTaskSteps(taskId, payload) {
   };
   fs.writeFileSync(stepsPath(taskId), `${JSON.stringify(next, null, 2)}\n`);
   return next;
+}
+
+function refsPath(taskId) {
+  return path.join(REFS_DIR, `${safeTaskId(taskId)}.json`);
+}
+
+function defaultRefs(taskId) {
+  return {
+    created_at: new Date().toISOString(),
+    task_id: safeTaskId(taskId),
+    refs: [],
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function readTaskRefs(taskId) {
+  const filePath = refsPath(taskId);
+  if (!fs.existsSync(filePath)) {
+    return defaultRefs(taskId);
+  }
+
+  const raw = fs.readFileSync(filePath, "utf8");
+  let parsed;
+  let invalid = false;
+  try {
+    parsed = JSON.parse(raw);
+    invalid = !parsed || typeof parsed !== "object" || !Array.isArray(parsed.refs);
+  } catch {
+    invalid = true;
+  }
+
+  if (invalid) {
+    // A file that exists but fails to parse is not the same as no refs ever having been
+    // saved. Treating it as defaultRefs() here would let writeTaskRefs() below merge one
+    // new ref into an empty base and silently overwrite whatever was recoverable in the
+    // corrupted file. Quarantine it instead, so the next write starts from a clean slate
+    // (existsSync is now false) without destroying the original bytes, and surface the
+    // problem to the caller rather than pretending the read succeeded.
+    const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
+    try {
+      fs.renameSync(filePath, quarantinePath);
+    } catch {
+      // best-effort quarantine; still throw below regardless of whether this succeeded
+    }
+    throw new Error(`Refs file for ${taskId} was corrupted; quarantined as ${path.basename(quarantinePath)}.`);
+  }
+
+  return parsed;
+}
+
+function normalizeRef(ref, index) {
+  const cleanPath = String(ref?.path || "").trim();
+  const line = ref?.line === null || ref?.line === undefined || ref?.line === ""
+    ? null
+    : Number(ref.line);
+  const kind = ref?.kind === "file" ? "file" : "path";
+  return {
+    id: String(ref?.id || `${Date.now().toString(36)}_${index}`),
+    path: cleanPath,
+    line: Number.isFinite(line) ? line : null,
+    kind,
+    label: String(ref?.label || cleanPath.split("/").pop() || cleanPath),
+  };
+}
+
+function writeTaskRefs(taskId, payload) {
+  fs.mkdirSync(REFS_DIR, { recursive: true });
+  const existing = readTaskRefs(taskId);
+  const refs = Array.isArray(payload.refs)
+    ? payload.refs.map(normalizeRef).filter((ref) => ref.path)
+    : [];
+  const next = {
+    ...existing,
+    task_id: safeTaskId(taskId),
+    refs,
+    updated_at: new Date().toISOString(),
+  };
+  fs.writeFileSync(refsPath(taskId), `${JSON.stringify(next, null, 2)}\n`);
+  return next;
+}
+
+function readRepoMap() {
+  if (!fs.existsSync(REPO_MAP_PATH)) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(REPO_MAP_PATH, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function resolveRepoPath(projectName) {
+  const map = readRepoMap();
+  const repoPath = map[projectName];
+  if (!repoPath || typeof repoPath !== "string") {
+    return null;
+  }
+  const resolved = path.resolve(repoPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return null;
+  }
+  return resolved;
+}
+
+function runGit(repoPath, args) {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      args,
+      { cwd: repoPath, timeout: 5000, windowsHide: true },
+      (error, stdout) => {
+        resolve(error ? null : stdout.trim());
+      },
+    );
+  });
+}
+
+async function gitStatusFor(taskId, projectName) {
+  const repoPath = resolveRepoPath(projectName);
+  if (!repoPath) {
+    return { configured: false };
+  }
+
+  const safeId = safeTaskId(taskId);
+  const [branch, lastCommit, lastCommitAge, aheadBehind, statusPorcelain] = await Promise.all([
+    runGit(repoPath, ["branch", "--show-current"]),
+    runGit(repoPath, ["log", `--grep=${safeId}`, "--fixed-strings", "--oneline", "-1"]),
+    runGit(repoPath, ["log", `--grep=${safeId}`, "--fixed-strings", "--format=%cr", "-1"]),
+    runGit(repoPath, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
+    runGit(repoPath, ["status", "--porcelain"]),
+  ]);
+
+  let ahead = null;
+  let behind = null;
+  if (aheadBehind) {
+    const parts = aheadBehind.split(/\s+/).map(Number);
+    if (parts.length === 2 && parts.every(Number.isFinite)) {
+      [behind, ahead] = parts;
+    }
+  }
+
+  const dirtyCount =
+    statusPorcelain === null ? null : statusPorcelain.split("\n").filter((line) => line.trim()).length;
+
+  return {
+    configured: true,
+    repo: repoPath,
+    branch: branch || null,
+    lastCommit: lastCommit || null,
+    lastCommitAge: lastCommit ? lastCommitAge || null : null,
+    ahead,
+    behind,
+    dirty: dirtyCount,
+  };
+}
+
+const MAX_PEEK_BYTES = 2 * 1024 * 1024;
+
+async function peekFile(projectName, refPath, line) {
+  const repoPath = resolveRepoPath(projectName);
+  if (!repoPath) {
+    throw new Error("No repo configured for this project.");
+  }
+  const lexical = path.resolve(repoPath, refPath);
+  let resolved;
+  try {
+    resolved = fs.realpathSync(lexical);
+  } catch (error) {
+    throw new Error("Ref path is not readable.");
+  }
+  const repoReal = fs.realpathSync(repoPath);
+  const withSep = repoReal.endsWith(path.sep) ? repoReal : `${repoReal}${path.sep}`;
+  if (resolved !== repoReal && !resolved.startsWith(withSep)) {
+    throw new Error("Ref path escapes the configured repo.");
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) {
+    throw new Error("Ref path is not a file.");
+  }
+  if (stat.size > MAX_PEEK_BYTES) {
+    throw new Error("File is too large to peek.");
+  }
+  const content = fs.readFileSync(resolved, "utf8");
+  const allLines = content.split("\n");
+  const target = Number.isFinite(line) && line > 0 ? line : null;
+  const start = target ? Math.max(0, target - 10) : 0;
+  const end = target ? Math.min(allLines.length, target + 10) : Math.min(allLines.length, 20);
+  const lines = allLines.slice(start, end).map((text, index) => ({
+    n: start + index + 1,
+    text,
+  }));
+  return { path: refPath, repo: repoPath, lines };
 }
 
 function normalizeTaskPatch(payload) {
@@ -611,6 +869,44 @@ async function handleApi(req, res, pathname, query) {
     }
   }
 
+  const refsPeekMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/refs\/peek$/);
+  if (refsPeekMatch && req.method === "GET") {
+    const taskId = decodeURIComponent(refsPeekMatch[1]);
+    const refId = query.get("refId") || "";
+    const project = await resolveTaskProject(taskId);
+    const record = readTaskRefs(taskId);
+    const ref = record.refs.find((item) => item.id === refId);
+    if (!ref) {
+      return sendJson(res, 404, { error: "Ref not found." });
+    }
+    try {
+      const peek = await peekFile(project, ref.path, ref.line);
+      return sendJson(res, 200, peek);
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message });
+    }
+  }
+
+  const refsMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/refs$/);
+  if (refsMatch) {
+    const taskId = decodeURIComponent(refsMatch[1]);
+    if (req.method === "GET") {
+      return sendJson(res, 200, readTaskRefs(taskId));
+    }
+    if (req.method === "PUT") {
+      const payload = await readJsonBody(req);
+      return sendJson(res, 200, writeTaskRefs(taskId, payload));
+    }
+  }
+
+  const gitMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/git$/);
+  if (gitMatch && req.method === "GET") {
+    const taskId = decodeURIComponent(gitMatch[1]);
+    const project = await resolveTaskProject(taskId);
+    const status = await gitStatusFor(taskId, project);
+    return sendJson(res, 200, status);
+  }
+
   const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
   if (taskMatch) {
     const taskId = decodeURIComponent(taskMatch[1]);
@@ -678,6 +974,8 @@ async function handleApi(req, res, pathname, query) {
 
 async function requestHandler(req, res) {
   try {
+    if (!requireAuth(req, res)) return;
+
     const url = new URL(req.url, `http://${req.headers.host || `${config.host}:${config.port}`}`);
     const { pathname, searchParams } = url;
 
@@ -722,4 +1020,10 @@ const server = http.createServer((req, res) => {
 server.listen(config.port, config.host, () => {
   console.log(`todozi-manage listening on http://${config.host}:${config.port}`);
   console.log(`todozi backend: ${config.todoziBaseUrl}`);
+  if (!config.manageAuthUser || !config.manageAuthPass) {
+    console.warn(
+      "WARNING: MANAGE_AUTH_USER/MANAGE_AUTH_PASS are not set — todozi-manage is serving " +
+        "every route, including all /api/* routes, with no authentication.",
+    );
+  }
 });

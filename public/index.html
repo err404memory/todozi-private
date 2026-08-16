@@ -10,62 +10,76 @@
   <body>
     <div class="page">
       <header class="shell-header">
-        <div class="title-row">
-          <div>
-            <p class="eyebrow">Todozi [v]</p>
-            <h1>Todozi manage</h1>
-          </div>
-          <div class="hero-actions">
-            <button id="refresh-btn" class="secondary">Refresh</button>
+        <div class="topbar">
+          <span class="brand">TODOZI/<span class="brand-accent">manage</span></span>
+          <form id="omni-form" class="omnibar" autocomplete="off">
+            <span class="omni-caret" aria-hidden="true">&rsaquo;</span>
+            <input
+              id="omni-input"
+              name="q"
+              aria-label="Search tasks or capture with a slash command"
+              placeholder="search &middot; /task /idea /err /queue to capture &middot; g to regroup"
+              autocomplete="off"
+            />
+          </form>
+          <div class="topbar-stats">
+            <span>queue <strong id="stat-queue">0</strong></span>
+            <span class="tone-warn">errors <strong id="stat-errors">0</strong></span>
+            <span id="sync-indicator" class="sync-indicator" role="status" aria-live="polite">booting&hellip;</span>
+            <button id="refresh-btn" type="button" class="secondary">Refresh</button>
             <a class="ghost" href="/api/health" target="_blank" rel="noreferrer">Health</a>
           </div>
         </div>
-        <nav class="modebar" aria-label="Todozi sections">
-          <button type="button" class="mode-tab active" data-mode="projects">📁 Projects</button>
-          <button type="button" class="mode-tab" data-mode="tasks">📋 Tasks</button>
-          <button type="button" class="mode-tab" data-mode="done">✅ Done</button>
-          <button type="button" class="mode-tab" data-mode="find">🔍 Find</button>
-          <button type="button" class="mode-tab" data-mode="more">🔮 More</button>
-          <button type="button" class="mode-tab" data-mode="api">🔑 API</button>
-          <button type="button" class="mode-tab" data-mode="feed">📰 Feed</button>
-        </nav>
-        <form id="filter-form" class="filterbar">
-          <span>🔍 Filters</span>
-          <label>
-            Status
-            <select id="status-filter" name="status">
-              <option value="all">All</option>
-              <option value="todo">Todo</option>
-              <option value="in_progress">In progress</option>
-              <option value="done">Done</option>
-            </select>
-          </label>
-          <label>
-            Priority
-            <select id="priority-filter" name="priority">
-              <option value="all">All</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </label>
-          <label>
-            Project
-            <select id="project-filter" name="project"></select>
-          </label>
-        </form>
+
+        <div class="axis-bar">
+          <span class="axis-label">group by</span>
+          <div id="axis-chips" class="chip-row"></div>
+          <span class="bar-divider"></span>
+          <span class="axis-label">fold</span>
+          <div id="hide-chips" class="chip-row"></div>
+          <span class="bar-divider"></span>
+          <button id="fold-all-btn" type="button" class="chip-btn">fold all</button>
+          <button id="unfold-all-btn" type="button" class="chip-btn">unfold all</button>
+          <button id="effort-toggle-btn" type="button" class="chip-btn">effort</button>
+          <span class="flex-spacer"></span>
+          <span id="axis-status" class="axis-status"></span>
+        </div>
       </header>
 
       <main class="layout">
         <aside class="panel sidebar">
-          <div class="panel-header">
-            <h2>Projects</h2>
-            <span id="project-count" class="badge">0</span>
+          <div class="rail-block">
+            <div class="rail-title">Views</div>
+            <div id="views-list" class="stack"></div>
           </div>
-          <div id="project-list" class="stack"></div>
 
-          <section class="subpanel mode-panel" data-panel="projects">
+          <div class="rail-block">
+            <div class="panel-header">
+              <h2>Projects</h2>
+              <span id="project-count" class="badge">0</span>
+            </div>
+            <div id="project-list" class="stack"></div>
+          </div>
+
+          <div class="rail-block platform-block">
+            <div class="rail-title">Platform</div>
+            <button type="button" class="rail-row" data-panel-toggle="platform" data-panel-resource="activeQueue">
+              Queue<span id="rail-queue">0</span>
+            </button>
+            <button type="button" class="rail-row" data-panel-toggle="platform" data-panel-resource="ideas">
+              Ideas<span id="rail-ideas">0</span>
+            </button>
+            <button type="button" class="rail-row tone-warn" data-panel-toggle="platform" data-panel-resource="errors">
+              Errors<span id="rail-errors">0</span>
+            </button>
+          </div>
+
+          <div class="rail-block rail-toggle-block">
+            <button type="button" class="rail-toggle" data-panel-toggle="capture">&#9998; Capture</button>
+            <button type="button" class="rail-toggle" data-panel-toggle="platform">&#128302; Platform</button>
+          </div>
+
+          <section class="subpanel">
             <div class="panel-header">
               <h3>Create project</h3>
             </div>
@@ -86,18 +100,7 @@
         <section class="panel main">
           <div class="stats" id="stats"></div>
 
-          <section class="subpanel mode-panel" data-panel="find">
-            <div class="panel-header">
-              <h2>Search and capture</h2>
-            </div>
-            <form id="search-form" class="search-row">
-              <input id="search-input" name="q" placeholder="Search tasks or text" />
-              <button type="submit">Search</button>
-              <button id="clear-search" type="button" class="secondary">Clear</button>
-            </form>
-          </section>
-
-          <section class="subpanel mode-panel" data-panel="tasks projects">
+          <section id="capture-panel" class="subpanel capture-panel" hidden>
             <div class="panel-header">
               <h2>Quick task</h2>
             </div>
@@ -127,10 +130,8 @@
                 <button type="submit">Create task</button>
               </div>
             </form>
-          </section>
 
-          <section class="subpanel mode-panel" data-panel="more feed">
-            <div class="panel-header">
+            <div class="panel-header compact">
               <h2>Platform capture</h2>
             </div>
             <div class="capture-grid">
@@ -284,25 +285,21 @@
             </div>
           </section>
 
-          <section class="subpanel mode-panel" data-panel="tasks done find projects">
-            <div class="panel-header">
-              <h2>Tasks</h2>
-              <span id="task-count" class="badge">0</span>
-            </div>
-            <div class="task-toolbar">
-              <span id="filter-chip" class="chip">All projects</span>
-              <span id="search-chip" class="chip hidden"></span>
-            </div>
-            <div id="task-list" class="task-list"></div>
-          </section>
-
-          <section class="subpanel mode-panel" data-panel="more api feed">
+          <section id="platform-panel" class="subpanel platform-panel" hidden>
             <div class="panel-header">
               <h2>Platform resources</h2>
               <span id="platform-count" class="badge">0</span>
             </div>
             <div id="platform-tabs" class="resource-tabs"></div>
             <div id="platform-list" class="resource-list"></div>
+          </section>
+
+          <section class="stream-panel">
+            <div class="panel-header">
+              <h2>Tasks</h2>
+              <span id="task-count" class="badge">0</span>
+            </div>
+            <div id="task-stream" class="task-stream"></div>
           </section>
         </section>
 
@@ -312,6 +309,17 @@
           </div>
         </aside>
       </main>
+
+      <footer class="keybar">
+        <span><strong>j/k</strong> move</span>
+        <span><strong>g</strong> regroup</span>
+        <span><strong>z</strong> fold group &middot; <strong>Z</strong> fold all</span>
+        <span><strong>h</strong> hide rule</span>
+        <span><strong>enter</strong> expand</span>
+        <span><strong>drag onto a row</strong> to block &middot; <strong>drag to its top edge</strong> to reorder</span>
+        <span class="flex-spacer"></span>
+        <span id="fold-summary"></span>
+      </footer>
     </div>
   </body>
 </html>
