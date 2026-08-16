@@ -825,8 +825,11 @@ async function removeRef(taskId, refId) {
       state.taskRefs[taskId] = { data };
     });
     state.openPeeks.delete(peekKey(taskId, refId));
+    // renderTaskStream() already reflects the updated ref list wherever it's actually shown
+    // (the expanded row's ref list/badge) — renderTaskDetail() has no ref-derived content of
+    // its own to update, and calling it would rebuild the whole detail form from the
+    // unchanged underlying task, discarding any unsaved edits the user has in progress there.
     renderTaskStream();
-    if (state.selectedTaskId === taskId) renderTaskDetail();
   } catch (error) {
     setMessage(`Ref remove failed: ${error.message}`, "error");
   }
@@ -854,8 +857,10 @@ async function handleRefAddSubmit(event) {
       state.taskRefs[taskId] = { data };
     });
     form.reset();
+    // See the matching comment in removeRef(): renderTaskStream() already covers everything
+    // ref-related that's actually rendered; renderTaskDetail() would just wipe unsaved edits
+    // elsewhere in the form for no benefit.
     renderTaskStream();
-    if (state.selectedTaskId === taskId) renderTaskDetail();
   } catch (error) {
     setMessage(`Ref add failed: ${error.message}`, "error");
   }
@@ -2804,19 +2809,26 @@ async function bulkLoadSteps(force = false, generation = refreshGeneration) {
 
 async function bulkLoadRefs(force = false, generation = refreshGeneration) {
   const tasks = state.bootstrap?.tasks || [];
-  await runWithConcurrency(tasks, BULK_LOAD_CONCURRENCY, async (task) => {
-    if (!force && state.taskRefs[task.id]?.data) return;
-    if (generation !== refreshGeneration) return;
-    state.taskRefs[task.id] = { loading: true };
-    try {
-      const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
+  // Queued per task, same as removeRef/handleRefAddSubmit: without this, a bulk GET started
+  // before a ref add/remove's PUT but resolving after it would overwrite state.taskRefs with
+  // the pre-mutation list — the generation guard only catches a newer *refresh* superseding
+  // this one, not a same-generation ref mutation racing it. Queuing serializes both against
+  // whichever started first.
+  await runWithConcurrency(tasks, BULK_LOAD_CONCURRENCY, (task) =>
+    enqueueTaskWrite(task.id, async () => {
+      if (!force && state.taskRefs[task.id]?.data) return;
       if (generation !== refreshGeneration) return;
-      state.taskRefs[task.id] = { data };
-    } catch (error) {
-      if (generation !== refreshGeneration) return;
-      state.taskRefs[task.id] = { error: error.message };
-    }
-  });
+      state.taskRefs[task.id] = { loading: true };
+      try {
+        const data = await api(`/api/tasks/${encodeURIComponent(task.id)}/refs`);
+        if (generation !== refreshGeneration) return;
+        state.taskRefs[task.id] = { data };
+      } catch (error) {
+        if (generation !== refreshGeneration) return;
+        state.taskRefs[task.id] = { error: error.message };
+      }
+    }),
+  );
 }
 
 let refreshGeneration = 0;

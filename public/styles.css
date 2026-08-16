@@ -2149,4 +2149,16 @@ textarea {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  /* .topbar has no wrap and both .brand and .topbar-stats are flex: 0 0 auto, so on phone
+     widths their combined size leaves the omnibar almost no room and pushes the refresh/
+     health controls past the viewport — with body hiding horizontal overflow, those controls
+     become unreachable rather than just off-screen-but-scrollable. Let the row wrap instead. */
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .topbar-stats {
+    flex-wrap: wrap;
+  }
 }
