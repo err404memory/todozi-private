@@ -1480,8 +1480,25 @@ function showDeleteConfirm(task) {
   const slot = elements.taskDetail.querySelector("[data-delete-confirm-slot]");
   if (!slot) return;
   slot.innerHTML = renderDeleteConfirm(task);
-  slot.querySelector("[data-delete-unlink]")?.addEventListener("click", () => performDelete(task, "unlink"));
-  slot.querySelector("[data-delete-transfer]")?.addEventListener("click", () => performDelete(task, "transfer"));
+  // Disable immediately on click, synchronously, before performDelete's first await: a
+  // second click before the first request completes would run a second independent
+  // performDelete for the same task, racing the first for both tombstone bookkeeping and
+  // (in transfer mode) which delete's dependent rewrite the other one observes as already
+  // applied. A failed delete redraws this slot fresh via refreshAll(), re-enabling it; a
+  // successful one clears selectedTaskId and this form goes away entirely.
+  const disableActions = () => {
+    slot.querySelectorAll("button").forEach((button) => {
+      button.disabled = true;
+    });
+  };
+  slot.querySelector("[data-delete-unlink]")?.addEventListener("click", () => {
+    disableActions();
+    performDelete(task, "unlink");
+  });
+  slot.querySelector("[data-delete-transfer]")?.addEventListener("click", () => {
+    disableActions();
+    performDelete(task, "transfer");
+  });
   slot.querySelector("[data-delete-cancel]").addEventListener("click", () => {
     state.confirmDeleteTaskId = null;
     slot.innerHTML = "";
@@ -1519,6 +1536,12 @@ async function performDelete(task, mode) {
       previousStatus: formatStatus(task),
       dependents: dependentMeta,
     },
+    // True only until the initial status:"deleted" PUT below settles. Without this, a
+    // refreshAll() that happens to fetch bootstrap data in the gap between this tombstone
+    // being created and that PUT actually applying server-side would see the task still
+    // live, conclude via stillDeleted() that this brand-new tombstone is stale, and prune
+    // it — discarding the only undo record for a delete that may still go on to succeed.
+    deleteInProgress: true,
   };
 
   viewState.tombstones.push(snapshot);
@@ -1535,6 +1558,11 @@ async function performDelete(task, mode) {
       body: JSON.stringify({ status: "deleted" }),
     });
     taskMarkedDeleted = true;
+    // The task is now genuinely deleted server-side, so any refresh from here on will see
+    // that via stillDeleted() on its own — the deleteInProgress window only needed to cover
+    // the gap before this write applied.
+    snapshot.deleteInProgress = false;
+    saveViewState();
 
     // Promise.allSettled, not Promise.all: if one dependent's request rejects quickly while
     // another is still in flight, Promise.all would reject immediately and let the catch
@@ -1589,10 +1617,14 @@ async function performDelete(task, mode) {
     await refreshAll();
     setMessage(`Deleted ${task.id}.`);
   } catch (error) {
+    // The initial status write has settled one way or another by any point this catch can be
+    // reached (it's the first await in the try block) — the deleteInProgress window is over
+    // either way, whether or not the task actually ended up marked deleted.
+    snapshot.deleteInProgress = false;
     if (!taskMarkedDeleted && error.confirmedFailure) {
       viewState.tombstones = viewState.tombstones.filter((tomb) => tomb.id !== snapshot.id);
-      saveViewState();
     }
+    saveViewState();
     await refreshAll();
     setMessage(`Delete failed: ${error.message}`, "error");
   }
@@ -2841,7 +2873,7 @@ async function refreshAll() {
       return !rawTask || taskIsDeleted(rawTask);
     };
     const keptTombstones = viewState.tombstones.filter(
-      (tomb) => tomb.undoInProgress || stillDeleted(tomb.taskId),
+      (tomb) => tomb.undoInProgress || tomb.deleteInProgress || stillDeleted(tomb.taskId),
     );
     if (keptTombstones.length !== viewState.tombstones.length) {
       viewState.tombstones = keptTombstones;
