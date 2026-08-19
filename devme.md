@@ -16,31 +16,34 @@ for an extended, indefinite period, so satellite is now the sole target — see 
   `slated`-tagged idea below), no longer branded as Todozi. Todozi stays as the backend
   data source; this UI becomes a distinct product on top of it. Not scheduled yet — do
   this after PR #1 merges, not as part of it.
-- **Offline-first local copy + sync (planned, real requirement, not optional).** The whole
-  app currently has a hard dependency on one always-on machine (satellite, previously nova)
-  being reachable — when that machine is down, which has happened for weeks/months at a
-  time, task capture/editing is unavailable for the whole outage and in-progress work gets
-  abandoned. The fix is a genuine offline-first client: local storage of tasks/steps/refs on
-  the device, full read/write while disconnected, and sync-on-reconnect against the real
-  Todozi backend. This is a substantial feature — it needs a conflict-resolution strategy for
-  edits made offline on multiple devices, not just a cache — so treat it like `doorman` was
-  treated: a real design pass (what gets stored locally, what the sync/merge protocol is,
-  what happens to server-only concepts like git status and file refs while offline) before
-  any implementation, rather than bolting it onto the existing redesign PR. Not started.
-  Directional model to design against: Trilium Notes' sync approach — each installation
-  keeps a full local copy, every mutation is appended to a local changelog with a
-  timestamp, and reconnecting peers just exchange changelog entries in both directions
-  with last-write-wins per entity on timestamp conflict. No CRDT/operational-transform
-  merging — a same-entity edit made offline on two devices while both were disconnected
-  just has the later timestamp win outright. Deliberately simple, proven pattern, good fit
-  for a single-operator tool. Open question this raises for the eventual design pass:
-  Trilium's local copy lives in an installed app's embedded database, not a browser tab —
-  the browser equivalent (IndexedDB) is more fragile (cleared by the user, quota-limited,
-  tied to one browser profile), so whether this stays browser-only or gets a lightweight
-  installed companion is an early decision to make, not an afterthought.
-  Explicitly ruled out as unnecessary for now: public internet exposure via Tailscale Funnel
-  (the operator is never on someone else's devices, so Tailscale-only access is sufficient
-  once reachable at all) — offline support is the actual problem, not more reachability.
+- **Offline-first local copy + sync (real requirement, in progress).** The whole app has a
+  hard dependency on one always-on machine (satellite, previously nova) being reachable —
+  when that machine is down, which has happened for weeks/months at a time, task
+  capture/editing was unavailable for the whole outage and in-progress work got abandoned.
+  **Phase 1 shipped** (branch `claude/offline-first-capture`, built 2026-08-19, not yet
+  merged): `/task`, `/idea`, `/err`, `/queue` omnibar captures now queue to a local
+  `localStorage` outbox when a capture genuinely can't reach the server (a real network-level
+  failure, not a rejected request), instead of just failing and losing whatever was being
+  written down. The outbox flushes automatically on reconnect (the browser's `online` event
+  plus every periodic/manual refresh), with per-item failure handling (a confirmed rejection
+  is marked failed and shown with a Discard button, not retried forever) and duplicate-load
+  protection. Separately, the last successful `/api/bootstrap` + `/api/platform` snapshot is
+  cached locally and used to render something real instead of a blank page on a fully offline
+  boot, with a visible "Offline — showing cached data from Xh ago" banner. All four scenarios
+  (offline capture, reconnect-success flush, reconnect-failure + discard, cold-offline-boot
+  cache fallback) verified in a real browser via Playwright with simulated network loss.
+  **Not done — explicitly deferred to Phase 2:** editing *existing* tasks while offline. That
+  needs real conflict resolution (what if the same task got edited on the server too during
+  the outage), unlike new captures which are pure creates with nothing to conflict against.
+  Directional model for Phase 2: Trilium Notes' sync approach — local changelog of edits,
+  exchanged with the server on reconnect, last-write-wins per entity on timestamp conflict,
+  no CRDT/operational-transform merging. Also still open: whether the local copy stays
+  browser-only (`localStorage`/IndexedDB — fragile, cleared by the user, one browser profile
+  only) or gets a lightweight installed companion, and what happens to server-only concepts
+  (git status, file peek) while offline.
+  Explicitly ruled out as unnecessary: public internet exposure via Tailscale Funnel (the
+  operator is never on someone else's devices, so Tailscale-only access is sufficient once
+  reachable at all) — offline support was the actual problem, not more reachability.
 - **Satellite reachability status/monitoring (real requirement, distinct from offline-first
   above).** When `manage.err404memory.com` doesn't load, the operator currently has no way to
   tell "satellite is asleep/off" apart from "something is actually broken" — those need

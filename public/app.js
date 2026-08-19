@@ -109,7 +109,169 @@ function saveViewState() {
   }
 }
 
+/* ---------- offline: read cache + capture outbox ----------
+ * Deliberately scoped to two things: (1) show the last-known data instead of a blank page
+ * when the backend can't be reached at all, and (2) let /task, /idea, /err, /queue captures
+ * queue locally and sync once back online, instead of just failing and losing whatever the
+ * operator was trying to write down. Editing *existing* tasks while offline is a harder,
+ * separate problem (needs real conflict resolution against concurrent server-side changes)
+ * and is explicitly not attempted here — see devme.md's offline-first objective.
+ */
+
+const OFFLINE_CACHE_KEY = "todozi-manage:offline-cache:v1";
+const OFFLINE_OUTBOX_KEY = "todozi-manage:offline-outbox:v1";
+
+const OFFLINE_CAPTURE_ENDPOINTS = {
+  task: "/api/tasks",
+  idea: "/api/ideas",
+  err: "/api/errors",
+  queue: "/api/queue/plan",
+};
+
+const OFFLINE_CAPTURE_LABELS = {
+  task: "task",
+  idea: "idea",
+  err: "error",
+  queue: "queue item",
+};
+
+function saveOfflineCache(bootstrap, platform) {
+  try {
+    localStorage.setItem(
+      OFFLINE_CACHE_KEY,
+      JSON.stringify({ bootstrap, platform, cachedAt: new Date().toISOString() }),
+    );
+  } catch (error) {
+    // storage unavailable — offline fallback just won't have anything to show later
+  }
+}
+
+function loadOfflineCache() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function loadOfflineOutbox() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_OUTBOX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveOfflineOutbox() {
+  try {
+    localStorage.setItem(OFFLINE_OUTBOX_KEY, JSON.stringify(offlineOutbox));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+let offlineOutbox = loadOfflineOutbox();
+let flushingOutbox = false;
+
+function queueOfflineCapture(kind, payload) {
+  const item = {
+    id: `pending_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    kind,
+    payload,
+    createdAt: new Date().toISOString(),
+  };
+  offlineOutbox.push(item);
+  saveOfflineOutbox();
+  return item;
+}
+
+function discardOfflineCapture(id) {
+  offlineOutbox = offlineOutbox.filter((item) => item.id !== id);
+  saveOfflineOutbox();
+  renderOfflineBanner();
+}
+
+// Attempts every not-yet-failed queued capture, oldest first. Stops at the first item that's
+// still unreachable (leaves it and everything after it queued, in order, for next time) but
+// keeps going past a genuinely rejected item (marks it failed rather than retrying forever).
+async function flushOfflineOutbox() {
+  if (flushingOutbox) return;
+  if (!offlineOutbox.some((item) => !item.failed)) return;
+
+  flushingOutbox = true;
+  let syncedCount = 0;
+  try {
+    for (const item of offlineOutbox) {
+      if (item.failed) continue;
+      const endpoint = OFFLINE_CAPTURE_ENDPOINTS[item.kind];
+      try {
+        await api(endpoint, { method: "POST", body: JSON.stringify(item.payload) });
+        item.synced = true;
+        syncedCount += 1;
+      } catch (error) {
+        if (error.offline) break; // still offline — leave this and the rest queued, try later
+        item.failed = true;
+        item.failureMessage = error.message;
+      }
+    }
+    offlineOutbox = offlineOutbox.filter((item) => !item.synced);
+    saveOfflineOutbox();
+  } finally {
+    flushingOutbox = false;
+  }
+  if (syncedCount > 0) {
+    await refreshAll();
+    setMessage(`Synced ${syncedCount} offline capture${syncedCount === 1 ? "" : "s"} from earlier.`);
+  } else {
+    renderOfflineBanner();
+  }
+}
+
+function renderOfflineBanner() {
+  if (!elements.offlineBanner) return;
+  const pending = offlineOutbox.filter((item) => !item.failed);
+  const failed = offlineOutbox.filter((item) => item.failed);
+  if (!pending.length && !failed.length) {
+    elements.offlineBanner.innerHTML = "";
+    return;
+  }
+  const pendingLine = pending.length
+    ? `<div class="offline-banner-line">${pending.length} capture${pending.length === 1 ? "" : "s"} saved offline — will sync once back online.</div>`
+    : "";
+  const failedLines = failed
+    .map(
+      (item) => `
+        <div class="offline-banner-line offline-banner-failed">
+          <span>${escapeHtml(OFFLINE_CAPTURE_LABELS[item.kind] || item.kind)} failed to sync: ${escapeHtml(item.failureMessage || "unknown error")}</span>
+          <button type="button" class="ghost" data-discard-offline="${escapeHtml(item.id)}">Discard</button>
+        </div>
+      `,
+    )
+    .join("");
+  elements.offlineBanner.innerHTML = `<div class="offline-banner">${pendingLine}${failedLines}</div>`;
+  elements.offlineBanner.querySelectorAll("[data-discard-offline]").forEach((button) => {
+    button.addEventListener("click", () => discardOfflineCapture(button.dataset.discardOffline));
+  });
+}
+
 /* ---------- generic helpers ---------- */
+
+function formatRelativeTime(isoString) {
+  const then = new Date(isoString).getTime();
+  if (Number.isNaN(then)) return "an unknown time ago";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -350,13 +512,24 @@ function renderDependencyRow(dependency) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+  } catch (networkError) {
+    // fetch() itself throwing (not an HTTP error response) means the request never reached
+    // any server at all — this is the actual "we're offline" signal, distinct from a 4xx/5xx,
+    // which means a server did respond. Used to route capture calls into the offline outbox
+    // instead of just failing.
+    const error = new Error("Could not reach the server — you appear to be offline.");
+    error.offline = true;
+    throw error;
+  }
 
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
@@ -2605,6 +2778,35 @@ async function handleDependencyToggle(event) {
 
 let omniGeneration = 0;
 
+// Shared by all four omnibar capture branches. On a normal failure, rethrows so the caller's
+// catch block handles it exactly as before. On a true offline failure (fetch never reached
+// the server — see api()'s networkError handling), queues the capture locally instead of
+// losing it, and gives the operator positive feedback rather than an error.
+async function submitOmniCapture(myGeneration, kind, payload, successMessage) {
+  try {
+    await api(OFFLINE_CAPTURE_ENDPOINTS[kind], { method: "POST", body: JSON.stringify(payload) });
+  } catch (error) {
+    if (!error.offline) throw error;
+    queueOfflineCapture(kind, payload);
+    if (myGeneration !== omniGeneration) return;
+    elements.omniInput.value = "";
+    state.searchResults = null;
+    renderOfflineBanner();
+    setMessage(`Offline — ${OFFLINE_CAPTURE_LABELS[kind]} saved locally, will sync when back online.`);
+    return;
+  }
+  // Always refresh once the write has succeeded, even if a newer omnibar submission has
+  // already superseded this one — otherwise the new item exists on the server but never
+  // shows up until some unrelated refresh happens. Only the cosmetic bits (clearing the
+  // input the user may have already started retyping, showing our own success message)
+  // are gated on still being the current generation.
+  const refreshed = await refreshAll();
+  if (myGeneration !== omniGeneration) return;
+  elements.omniInput.value = "";
+  state.searchResults = null;
+  if (refreshed) setMessage(successMessage);
+}
+
 async function handleOmniSubmit(event) {
   event.preventDefault();
   const myGeneration = ++omniGeneration;
@@ -2622,50 +2824,34 @@ async function handleOmniSubmit(event) {
 
   try {
     if (taskMatch) {
-      await api("/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({
+      await submitOmniCapture(
+        myGeneration,
+        "task",
+        {
           action: taskMatch[1],
           parent_project: state.selectedProjectScope !== "all" ? state.selectedProjectScope : "general",
           priority: "medium",
-        }),
-      });
-      // Always refresh once the write has succeeded, even if a newer omnibar submission has
-      // already superseded this one — otherwise the new task exists on the server but never
-      // shows up until some unrelated refresh happens. Only the cosmetic bits (clearing the
-      // input the user may have already started retyping, showing our own success message)
-      // are gated on still being the current generation.
-      const refreshed = await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      elements.omniInput.value = "";
-      state.searchResults = null;
-      if (refreshed) setMessage("Task captured.");
+        },
+        "Task captured.",
+      );
       return;
     }
     if (ideaMatch) {
-      await api("/api/ideas", { method: "POST", body: JSON.stringify({ idea: ideaMatch[1] }) });
-      const refreshed = await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      elements.omniInput.value = "";
-      state.searchResults = null;
-      if (refreshed) setMessage("Idea captured.");
+      await submitOmniCapture(myGeneration, "idea", { idea: ideaMatch[1] }, "Idea captured.");
       return;
     }
     if (errMatch) {
-      await api("/api/errors", {
-        method: "POST",
-        body: JSON.stringify({
+      await submitOmniCapture(
+        myGeneration,
+        "err",
+        {
           title: errMatch[1].slice(0, 80),
           description: errMatch[1],
           source: "omnibar",
           severity: "medium",
-        }),
-      });
-      const refreshed = await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      elements.omniInput.value = "";
-      state.searchResults = null;
-      if (refreshed) setMessage("Error logged.");
+        },
+        "Error logged.",
+      );
       return;
     }
     if (queueMatch) {
@@ -2675,12 +2861,7 @@ async function handleOmniSubmit(event) {
         priority: "medium",
       };
       if (state.selectedProjectScope !== "all") payload.project_id = state.selectedProjectScope;
-      await api("/api/queue/plan", { method: "POST", body: JSON.stringify(payload) });
-      const refreshed = await refreshAll();
-      if (myGeneration !== omniGeneration) return;
-      elements.omniInput.value = "";
-      state.searchResults = null;
-      if (refreshed) setMessage("Queue item planned.");
+      await submitOmniCapture(myGeneration, "queue", payload, "Queue item planned.");
       return;
     }
 
@@ -2876,6 +3057,9 @@ async function refreshAll() {
 
     state.bootstrap = bootstrap;
     state.platform = platform;
+    // Even partially-degraded live data is more useful as an offline fallback later than
+    // nothing, so this isn't gated on !hadPartialFailure.
+    saveOfflineCache(state.bootstrap, state.platform);
     invalidateRelationshipCache();
     state.taskSteps = {};
     state.taskRefs = {};
@@ -2916,6 +3100,25 @@ async function refreshAll() {
     return true;
   } catch (error) {
     if (myGeneration !== refreshGeneration) return false;
+    // Offline with nothing loaded yet this session (e.g. cold boot with no connectivity) —
+    // fall back to whatever was cached from the last successful refresh instead of just
+    // showing a blank/broken page. If we already have live-ish data from earlier this
+    // session, leave it exactly as-is rather than possibly replacing it with an older cache.
+    if (error.offline && !state.bootstrap) {
+      const cached = loadOfflineCache();
+      if (cached) {
+        state.bootstrap = cached.bootstrap;
+        state.platform = cached.platform;
+        invalidateRelationshipCache();
+        state.taskSteps = {};
+        state.taskRefs = {};
+        state.taskGit = {};
+        renderAll();
+        renderSyncIndicator(false);
+        setMessage(`Offline — showing cached data from ${formatRelativeTime(cached.cachedAt)}.`, "error");
+        return false;
+      }
+    }
     setMessage(`Refresh failed: ${error.message}`, "error");
     renderSyncIndicator(false);
     return false;
@@ -2935,6 +3138,7 @@ function renderAll() {
   renderProjects();
   renderTaskStream();
   renderTaskDetail();
+  renderOfflineBanner();
   if (!elements.platformPanel.hidden) {
     renderPlatformResources();
   }
@@ -2978,6 +3182,7 @@ function bindStatic() {
     platformTabs: $("platform-tabs"),
     platformList: $("platform-list"),
     foldSummary: $("fold-summary"),
+    offlineBanner: $("offline-banner"),
   });
 }
 
@@ -3028,11 +3233,23 @@ function wireEvents() {
 function boot() {
   bindStatic();
   wireEvents();
-  refreshAll().catch((error) => setMessage(`Boot failed: ${error.message}`, "error"));
+  renderOfflineBanner(); // surface any outbox left over from a previous offline session immediately
+  refreshAll()
+    .then(() => flushOfflineOutbox().catch(() => {}))
+    .catch((error) => setMessage(`Boot failed: ${error.message}`, "error"));
+
+  // Only a hint, not the sole trigger — 'online' fires on a network-interface change, not on
+  // "the server is actually reachable now" (captive portals, VPN flaps, etc. can lie both
+  // ways). The 5-minute poll below and any successful refreshAll are the real backstop.
+  window.addEventListener("online", () => {
+    flushOfflineOutbox().catch(() => {});
+  });
 
   setInterval(() => {
     if (!document.hidden) {
-      refreshAll().catch(() => {});
+      refreshAll()
+        .then(() => flushOfflineOutbox().catch(() => {}))
+        .catch(() => {});
     }
   }, 5 * 60 * 1000);
 }
