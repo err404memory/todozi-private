@@ -126,6 +126,8 @@ const OFFLINE_CAPTURE_ENDPOINTS = {
   idea: "/api/ideas",
   err: "/api/errors",
   queue: "/api/queue/plan",
+  memory: "/api/memories",
+  training: "/api/training",
 };
 
 const OFFLINE_CAPTURE_LABELS = {
@@ -133,7 +135,28 @@ const OFFLINE_CAPTURE_LABELS = {
   idea: "idea",
   err: "error",
   queue: "queue item",
+  memory: "memory",
+  training: "training pair",
 };
+
+// Shared by every capture entry point (the omnibar's /task /idea /err /queue and the six
+// sidebar capture forms): attempts the write, and on a genuine offline failure (see api()'s
+// error.offline — covers both "browser can't reach todozi-manage" and "todozi-manage can't
+// reach the real Todozi backend") queues it locally instead of losing it. Returns
+// { queued: true } if it was queued, { queued: false } if it actually went through live; a
+// non-offline failure (a real rejection) propagates so the caller's own catch handles it
+// exactly as it did before this existed.
+async function attemptCapture(kind, payload) {
+  try {
+    await api(OFFLINE_CAPTURE_ENDPOINTS[kind], { method: "POST", body: JSON.stringify(payload) });
+    return { queued: false };
+  } catch (error) {
+    if (!error.offline) throw error;
+    queueOfflineCapture(kind, payload);
+    renderOfflineBanner();
+    return { queued: true };
+  }
+}
 
 function saveOfflineCache(bootstrap, platform) {
   try {
@@ -545,6 +568,11 @@ async function api(path, options = {}) {
     // not confirm the underlying write never happened, so it must not be treated the same as
     // a definitive rejection.
     error.confirmedFailure = response.status >= 400 && response.status < 500;
+    // This server (todozi-manage itself) is reachable — the browser got a real response —
+    // but it explicitly told us it never reached the real Todozi backend at all (connection
+    // refused, DNS failure, etc.), same as offline in every way that matters to the operator:
+    // the write never applied anywhere, so it's just as safe to queue for retry.
+    if (data?.upstreamUnreachable) error.offline = true;
     throw error;
   }
 
@@ -2486,22 +2514,36 @@ async function handleProjectSubmit(event) {
   }
 }
 
+// Shared tail for the six sidebar capture forms: on a genuine offline failure the write is
+// already queued (by attemptCapture) by the time this runs, so just reset the form and tell
+// the operator; on a live success, reset and refresh as before.
+async function finishFormCapture(form, result, kind, successMessage) {
+  form.reset();
+  if (result.queued) {
+    setMessage(`Offline — ${OFFLINE_CAPTURE_LABELS[kind]} saved locally, will sync when back online.`);
+    return;
+  }
+  await refreshAll();
+  setMessage(successMessage);
+}
+
 async function handleTaskSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const formData = new FormData(form);
   try {
-    await api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        action: formData.get("action"),
-        parent_project: formData.get("parent_project"),
-        time: formData.get("time"),
-        priority: formData.get("priority"),
-      }),
+    const result = await attemptCapture("task", {
+      action: formData.get("action"),
+      parent_project: formData.get("parent_project"),
+      time: formData.get("time"),
+      priority: formData.get("priority"),
     });
     form.reset();
-    await refreshAll();
+    if (result.queued) {
+      setMessage("Offline — task saved locally, will sync when back online.");
+    } else {
+      await refreshAll();
+    }
   } catch (error) {
     setMessage(`Task create failed: ${error.message}`, "error");
   }
@@ -2512,18 +2554,13 @@ async function handleIdeaSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   try {
-    await api("/api/ideas", {
-      method: "POST",
-      body: JSON.stringify({
-        idea: formData.get("idea"),
-        share: formData.get("share"),
-        importance: formData.get("importance"),
-        tags: splitList(formData.get("tags")),
-      }),
+    const result = await attemptCapture("idea", {
+      idea: formData.get("idea"),
+      share: formData.get("share"),
+      importance: formData.get("importance"),
+      tags: splitList(formData.get("tags")),
     });
-    form.reset();
-    await refreshAll();
-    setMessage("Idea saved.");
+    await finishFormCapture(form, result, "idea", "Idea saved.");
   } catch (error) {
     setMessage(`Idea save failed: ${error.message}`, "error");
   }
@@ -2534,20 +2571,15 @@ async function handleMemorySubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   try {
-    await api("/api/memories", {
-      method: "POST",
-      body: JSON.stringify({
-        moment: formData.get("moment"),
-        meaning: formData.get("meaning"),
-        reason: formData.get("reason"),
-        memory_type: formData.get("memory_type"),
-        importance: "medium",
-        term: formData.get("term"),
-      }),
+    const result = await attemptCapture("memory", {
+      moment: formData.get("moment"),
+      meaning: formData.get("meaning"),
+      reason: formData.get("reason"),
+      memory_type: formData.get("memory_type"),
+      importance: "medium",
+      term: formData.get("term"),
     });
-    form.reset();
-    await refreshAll();
-    setMessage("Memory saved.");
+    await finishFormCapture(form, result, "memory", "Memory saved.");
   } catch (error) {
     setMessage(`Memory save failed: ${error.message}`, "error");
   }
@@ -2558,19 +2590,14 @@ async function handleErrorSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   try {
-    await api("/api/errors", {
-      method: "POST",
-      body: JSON.stringify({
-        title: formData.get("title"),
-        description: formData.get("description"),
-        source: formData.get("source"),
-        severity: formData.get("severity"),
-        category: "runtime",
-      }),
+    const result = await attemptCapture("err", {
+      title: formData.get("title"),
+      description: formData.get("description"),
+      source: formData.get("source"),
+      severity: formData.get("severity"),
+      category: "runtime",
     });
-    form.reset();
-    await refreshAll();
-    setMessage("Error logged.");
+    await finishFormCapture(form, result, "err", "Error logged.");
   } catch (error) {
     setMessage(`Error log failed: ${error.message}`, "error");
   }
@@ -2589,13 +2616,8 @@ async function handleQueueSubmit(event) {
     payload.project_id = formData.get("project_id");
   }
   try {
-    await api("/api/queue/plan", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    form.reset();
-    await refreshAll();
-    setMessage("Queue item planned.");
+    const result = await attemptCapture("queue", payload);
+    await finishFormCapture(form, result, "queue", "Queue item planned.");
   } catch (error) {
     setMessage(`Queue plan failed: ${error.message}`, "error");
   }
@@ -2606,18 +2628,13 @@ async function handleTrainingSubmit(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   try {
-    await api("/api/training", {
-      method: "POST",
-      body: JSON.stringify({
-        prompt: formData.get("prompt"),
-        completion: formData.get("completion"),
-        data_type: formData.get("data_type"),
-        source: formData.get("source") || "manual",
-      }),
+    const result = await attemptCapture("training", {
+      prompt: formData.get("prompt"),
+      completion: formData.get("completion"),
+      data_type: formData.get("data_type"),
+      source: formData.get("source") || "manual",
     });
-    form.reset();
-    await refreshAll();
-    setMessage("Training pair saved.");
+    await finishFormCapture(form, result, "training", "Training pair saved.");
   } catch (error) {
     setMessage(`Training save failed: ${error.message}`, "error");
   }
@@ -2783,15 +2800,11 @@ let omniGeneration = 0;
 // the server — see api()'s networkError handling), queues the capture locally instead of
 // losing it, and gives the operator positive feedback rather than an error.
 async function submitOmniCapture(myGeneration, kind, payload, successMessage) {
-  try {
-    await api(OFFLINE_CAPTURE_ENDPOINTS[kind], { method: "POST", body: JSON.stringify(payload) });
-  } catch (error) {
-    if (!error.offline) throw error;
-    queueOfflineCapture(kind, payload);
+  const result = await attemptCapture(kind, payload);
+  if (result.queued) {
     if (myGeneration !== omniGeneration) return;
     elements.omniInput.value = "";
     state.searchResults = null;
-    renderOfflineBanner();
     setMessage(`Offline — ${OFFLINE_CAPTURE_LABELS[kind]} saved locally, will sync when back online.`);
     return;
   }
