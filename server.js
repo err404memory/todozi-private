@@ -160,7 +160,19 @@ async function todoziRequest(method, route, { body = undefined, useAdmin = false
     init.body = JSON.stringify(body);
   }
 
-  const response = await fetch(url, init);
+  let response;
+  try {
+    response = await fetch(url, init);
+  } catch (networkError) {
+    // The real Todozi backend never received this request at all (connection refused, DNS
+    // failure, or the AbortSignal timeout above firing before a connection was established) —
+    // distinct from the backend responding with an error. Tagged so requestHandler can surface
+    // this as a retryable "unreachable" condition rather than an opaque 500, letting the
+    // browser tell the two apart the same way it already tells apart its own network loss.
+    const error = new Error(`${method} ${route}: could not reach the Todozi backend (${networkError.message}).`);
+    error.upstreamUnreachable = true;
+    throw error;
+  }
   const raw = await response.text();
   let data = null;
 
@@ -996,12 +1008,21 @@ async function requestHandler(req, res) {
     }
 
     if (pathname.startsWith("/api/")) {
-      return handleApi(req, res, pathname, searchParams);
+      // await, not a bare return: a bare `return handleApi(...)` exits this try block
+      // immediately, so a rejection from that promise would settle asynchronously and never
+      // actually pass through this function's own catch below — it would instead reject
+      // requestHandler's own returned promise directly, silently skipping the upstreamUnreachable
+      // (and any future) special-casing here and falling through to the generic-500-only
+      // fallback in the http.createServer callback further down.
+      return await handleApi(req, res, pathname, searchParams);
     }
 
     return sendJson(res, 404, { error: "Not found" });
   } catch (error) {
     console.error(error);
+    if (error.upstreamUnreachable) {
+      return sendJson(res, 503, { error: error.message || "Unexpected error", upstreamUnreachable: true });
+    }
     return sendJson(res, 500, { error: error.message || "Unexpected error" });
   }
 }

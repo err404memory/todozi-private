@@ -895,6 +895,30 @@ h1 {
   border-radius: 6px;
 }
 
+.offline-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.4rem 0.5rem 0;
+  padding: 0.42rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(184, 92, 0, 0.24);
+  background: rgba(184, 92, 0, 0.08);
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
+.offline-banner-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.offline-banner-failed {
+  color: #b02a2a;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
